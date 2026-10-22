@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tunbridge - ベイジアン自動分別メールクライアント</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Top Header Bar -->
+  <header class="app-topbar">
+    <div class="brand">
+      <span class="brand-badge">Tunbridge</span>
+      <span>Bayesian Mail User Agent</span>
+    </div>
+    <div class="topbar-stats" id="topbarStats">
+      <div class="stat-pill">分類精度: <strong id="statAccuracy">--%</strong></div>
+      <div class="stat-pill">総メール数: <strong id="statTotalEmails">0</strong></div>
+      <div class="stat-pill">学習コーパス語彙: <strong id="statVocab">0</strong> 語</div>
+      <div class="stat-pill">マグネット発動: <strong id="statMagnetHits">0</strong> 回</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-secondary" id="btnTopSimulate" onclick="openSimulateModal()" title="サンプル新着メールを生成して自動分類をテスト">⚡ デモ新着メール生成</button>
+      <button class="btn-secondary" id="btnTopImport" onclick="openImportModal()" title=".eml 形式メールをインポート">📄 .emlインポート</button>
+      <button class="btn-primary" id="btnTopFetch" onclick="fetchAllAccounts()" title="設定済みのPOP3/IMAPサーバーからメールを受信">📥 送受信 (POP3/IMAP)</button>
+      <button class="btn-secondary" id="btnTopFontConfig" onclick="openFontConfigModal()" title="表示言語・テーマ・フォントを設定">🌐 言語・フォント設定</button>
+      <select id="topbarThemeSelect" class="form-control" style="padding:4px 8px;font-size:12px;height:30px;width:auto;" onchange="setThemePreference(this.value)" title="アプリテーマの切り替え / Switch App Theme">
+        <option value="auto">🌓 自動 (OS)</option>
+        <option value="dark">🌙 ダーク</option>
+        <option value="light">☀️ ライト</option>
+      </select>
+      <select id="topbarLangSelect" class="form-control" style="padding:4px 8px;font-size:12px;height:30px;width:auto;" onchange="setLanguagePreference(this.value)" title="表示言語の切り替え / Switch Display Language">
+        <option value="auto">🌐 自動 (Auto)</option>
+        <option value="ja">🇯🇵 日本語</option>
+        <option value="en">🇺🇸 English</option>
+      </select>
+      <button class="btn-secondary" id="btnTopHelp" onclick="switchMainView('help')" title="Tunbridge の使い方・ヘルプガイドを表示" style="border-color:var(--accent);color:var(--link-accent);">❓ ヘルプ / 使い方</button>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <div class="app-main">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <button class="sidebar-compose-btn" onclick="openComposeModal()">
+        ✉️ 新規メール作成
+      </button>
+      <div class="sidebar-quick-row">
+        <button class="btn-secondary" onclick="quickSimulate(3, 'random')">🎲 新着3通生成</button>
+        <button class="btn-secondary" onclick="rescanEmails(false)" title="現在のコーパスとマグネットで全メールを再評価">🔄 再分類スキャン</button>
+      </div>
+
+      <div class="nav-section-title">
+        <span>MUA フォルダ</span>
+      </div>
+      <div id="folderNavList">
+        <div class="nav-item active" data-view="mua" data-folder="received" data-bucket="0" onclick="selectFolder('received', 0, false, false, this)">
+          <div class="nav-item-left">📥 すべての受信箱</div>
+          <span class="nav-badge" id="badgeReceived">0</span>
+        </div>
+        <div class="nav-item" data-view="mua" data-folder="received" data-unread="1" onclick="selectFolder('received', 0, true, false, this)">
+          <div class="nav-item-left">🔵 未読メール</div>
+          <span class="nav-badge unread" id="badgeUnread">0</span>
+        </div>
+        <div class="nav-item" data-view="mua" data-folder="all" data-starred="1" onclick="selectFolder('all', 0, false, true, this)">
+          <div class="nav-item-left">⭐ スター付き</div>
+          <span class="nav-badge" id="badgeStarred">0</span>
+        </div>
+        <div class="nav-item" data-view="mua" data-folder="sent" onclick="selectFolder('sent', 0, false, false, this)">
+          <div class="nav-item-left">📤 送信済みメール</div>
+          <span class="nav-badge" id="badgeSent">0</span>
+        </div>
+        <div class="nav-item" data-view="mua" data-folder="trash" onclick="selectFolder('trash', 0, false, false, this)">
+          <div class="nav-item-left">🗑️ ゴミ箱</div>
+          <span class="nav-badge" id="badgeTrash">0</span>
+        </div>
+      </div>
+
+      <div class="nav-section-title">
+        <span>プロバイダ・アカウント別</span>
+        <span style="cursor:pointer;color:var(--accent);" onclick="switchMainView('accounts')">＋設定</span>
+      </div>
+      <div id="providerNavList"></div>
+
+      <div class="nav-section-title">
+        <span>POPFile バケット</span>
+        <span style="cursor:pointer;color:var(--accent);" onclick="switchMainView('buckets')">＋管理</span>
+      </div>
+      <div id="bucketNavList"></div>
+
+      <div class="nav-section-title">
+        <span>POPFile コントロールセンター</span>
+      </div>
+      <div id="controlNavList">
+        <div class="nav-item" id="navMagnets" onclick="switchMainView('magnets')">
+          <div class="nav-item-left">🧲 マグネット (ルール振り分け)</div>
+        </div>
+        <div class="nav-item" id="navCorpus" onclick="switchMainView('corpus')">
+          <div class="nav-item-left">📚 コーパス・単語確率辞書</div>
+        </div>
+        <div class="nav-item" id="navBuckets" onclick="switchMainView('buckets')">
+          <div class="nav-item-left">📊 バケット管理・分類統計</div>
+        </div>
+        <div class="nav-item" id="navHistory" onclick="switchMainView('history')">
+          <div class="nav-item-left">🕒 分類・TOE学習履歴ログ</div>
+        </div>
+        <div class="nav-item" id="navAccounts" onclick="switchMainView('accounts')">
+          <div class="nav-item-left">⚙️ POP3 / IMAP / SMTP 設定</div>
+        </div>
+        <div class="nav-item" id="navHelp" onclick="switchMainView('help')">
+          <div class="nav-item-left">❓ 使い方・ヘルプガイド</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- View 1: MUA 3-Pane View -->
+    <main class="workspace-view" id="viewMUA">
+      <!-- Middle Mail List -->
+      <section class="mail-list-pane">
+        <div class="mail-list-toolbar">
+          <div class="search-box">
+            <input type="text" id="mailSearchInput" placeholder="件名・差出人・本文を検索..." onkeydown="if(event.key==='Enter') loadEmails()" />
+            <button class="btn-secondary" onclick="loadEmails()">検索</button>
+          </div>
+          <!-- Provider Filter & Group-by-Provider Bar -->
+          <div class="provider-filter-bar">
+            <div class="provider-tabs" id="providerFilterTabs"></div>
+            <label class="provider-group-toggle" title="一覧内でメールプロバイダごとに見出しを付けて分離表示します">
+              <input type="checkbox" id="groupByProviderCheckbox" checked onchange="toggleGroupByProvider(this.checked)" />
+              <span>プロバイダ別に分離</span>
+            </label>
+          </div>
+          <div class="mail-list-subbar">
+            <span id="currentListTitle">すべての受信箱</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button class="btn-undo-mini" id="undoDeleteBtn" style="display:none;" onclick="undoLastDelete()" title="直前の削除を取り消す (Ctrl+Z)">↩ 削除を元に戻す</button>
+              <span id="currentListCount">0 件</span>
+            </div>
+          </div>
+          <div class="mail-kbd-hint">
+            <span><kbd>↑</kbd><kbd>↓</kbd> 移動</span>
+            <span><kbd>PgUp</kbd><kbd>PgDn</kbd> ページ</span>
+            <span><kbd>Home</kbd><kbd>End</kbd> 先頭/末尾</span>
+            <span><kbd>Del</kbd> 削除</span>
+            <span><kbd>Ctrl+Z</kbd> 元に戻す</span>
+          </div>
+        </div>
+        <div class="mail-list-items" id="mailListContainer" tabindex="0"></div>
+      </section>
+
+      <!-- Right Mail Reader & POPFile Inspector -->
+      <section class="mail-reader-pane" id="mailReaderPane">
+        <div class="empty-reader">
+          <div style="font-size:36px;">📬</div>
+          <div>左のリストからメールを選択すると、本文および POPFile 単語確率・分類根拠が表示されます</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- View 2: Magnets Management -->
+    <main class="workspace-view" id="viewMagnets" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">🧲 POPFile マグネット (無条件振り分けルール)</div>
+            <div class="panel-subtitle">特定の差出人・ドメイン・宛先・件名キーワードを含むメールを、ベイズ判定より優先して指定バケットへ確定振り分けします。</div>
+          </div>
+          <button class="btn-secondary" onclick="rescanEmails(false)">🔄 既存メールにマグネットを再適用</button>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:10px;">新規マグネットの作成</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>対象フィールド</label>
+              <select id="magField" class="form-control">
+                <option value="from">From (差出人アドレス/名前)</option>
+                <option value="domain">Domain (送信元ドメイン)</option>
+                <option value="subject">Subject (件名キーワード)</option>
+                <option value="to">To (宛先アドレス)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:200px;">
+              <label>一致パターン (部分一致)</label>
+              <input type="text" id="magPattern" class="form-control" placeholder="例: vip-partner.co.jp または 【重要】" />
+            </div>
+            <div class="form-group">
+              <label>振り分け先バケット</label>
+              <select id="magBucket" class="form-control"></select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:180px;">
+              <label>メモ・説明 (任意)</label>
+              <input type="text" id="magDesc" class="form-control" placeholder="ルールの説明..." />
+            </div>
+            <button class="btn-primary" onclick="createMagnet()">＋ マグネット追加</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>状態</th>
+              <th>対象ヘッダ</th>
+              <th>一致パターン</th>
+              <th>振り分け先バケット</th>
+              <th>発動回数</th>
+              <th>説明</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="magnetsTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- View 3: Corpus & Word Lookup -->
+    <main class="workspace-view" id="viewCorpus" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📚 POPFile コーパス辞書 & 単語確率インスペクタ</div>
+            <div class="panel-subtitle">各バケットが学習した単語（ヘッダ疑似トークン `from:`, `subject:`, `domain:` 含む）の出現頻度とベイズ確率を検証します。</div>
+          </div>
+        </div>
+
+        <div class="card-grid" style="grid-template-columns: 1fr 1fr;">
+          <!-- Word Lookup Card -->
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:8px;">🔍 単語のバケット間比較 (Word Lookup)</div>
+            <div class="form-row">
+              <input type="text" id="lookupWordInput" class="form-control" style="flex:1;" placeholder="例: 無料, 議事録, 口座, subject:当選, domain:corp-tech.co.jp" onkeydown="if(event.key==='Enter') lookupWord()" />
+              <button class="btn-primary" onclick="lookupWord()">検索</button>
+            </div>
+            <div id="lookupWordResult" style="font-size:12.5px;color:var(--text-muted);">単語を入力して検索すると、全バケットでの出現回数と親和度を表示します。</div>
+          </div>
+
+          <!-- Live Classification Sandbox -->
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:8px;">🧪 リアルタイム分類シミュレータ (Sandbox)</div>
+            <div class="form-group" style="margin-bottom:6px;">
+              <input type="text" id="sandboxSubject" class="form-control" placeholder="テスト件名を入力 (例: 【至急】口座振替と請求明細のご案内)" />
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <textarea id="sandboxBody" class="form-control" rows="2" placeholder="テスト本文を入力..."></textarea>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <button class="btn-primary" onclick="runSandboxTest()">⚡ ベイズ判定を実行</button>
+              <div id="sandboxResultSummary"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bucket Word List -->
+        <div class="card">
+          <div class="form-row" style="justify-content:space-between;margin-bottom:12px;">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <label style="font-weight:700;">バケット別コーパス一覧:</label>
+              <select id="corpusBucketSelect" class="form-control" onchange="loadCorpusWords()"></select>
+              <input type="text" id="corpusSearchInput" class="form-control" placeholder="単語フィルタ..." oninput="loadCorpusWords()" />
+            </div>
+            <span id="corpusCountLabel" style="color:var(--text-muted);font-size:12px;"></span>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>トークン (単語 / 疑似ヘッダ)</th>
+                <th>このバケットでの出現回数</th>
+                <th>バケット内確率 P(w|B)</th>
+                <th>全バケットでの分布内訳</th>
+              </tr>
+            </thead>
+            <tbody id="corpusTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <!-- View 4: Buckets & Statistics -->
+    <main class="workspace-view" id="viewBuckets" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">📊 POPFile バケット管理 & 分類精度統計</div>
+            <div class="panel-subtitle">マルチバケットの作成・カラー設定・コーパス初期化および TOE (Train On Error) 統計を確認できます。</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:10px;">＋ 新規バケットの作成</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>バケットID (英数字)</label>
+              <input type="text" id="newBucketName" class="form-control" placeholder="例: shopping" />
+            </div>
+            <div class="form-group">
+              <label>表示ラベル</label>
+              <input type="text" id="newBucketLabel" class="form-control" placeholder="例: EC・通販 (Shopping)" />
+            </div>
+            <div class="form-group">
+              <label>テーマカラー</label>
+              <input type="color" id="newBucketColor" class="form-control" value="#06b6d4" style="height:35px;width:65px;padding:2px;" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>説明</label>
+              <input type="text" id="newBucketDesc" class="form-control" placeholder="注文確認・発送通知など" />
+            </div>
+            <button class="btn-primary" onclick="createBucket()">＋ バケット作成</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>バケット名</th>
+              <th>ID (X-Text-Classification)</th>
+              <th>現在メール数 (未読)</th>
+              <th>学習文書数</th>
+              <th>総単語数 (ユニーク語数)</th>
+              <th>事前確率 P(B)</th>
+              <th>誤判定数 (FP / FN)</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="bucketsTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- View 5: History Log -->
+    <main class="workspace-view" id="viewHistory" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">🕒 POPFile 分類・再学習 (TOE) 履歴ログ</div>
+            <div class="panel-subtitle">受信時の自動分類結果、マグネット発動、およびユーザーによる再分類（TOE学習）の履歴です。</div>
+          </div>
+          <button class="btn-secondary" onclick="loadHistoryView()">🔄 更新</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>日時</th>
+              <th>アクション</th>
+              <th>件名</th>
+              <th>差出人</th>
+              <th>変更前バケット</th>
+              <th>振り分け・学習先バケット</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- View 6: POP3 / IMAP / SMTP Account Settings -->
+    <main class="workspace-view" id="viewAccounts" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">⚙️ メールアカウント設定 (POP3 / IMAP4 / SMTP)</div>
+            <div class="panel-subtitle">実際のPOP3またはIMAPサーバーからメールを受信してPOPFileエンジンで自動分類し、SMTPで送信できます。</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:10px;" id="accLangCardTitle">🌐 表示言語・テーマ・フォント設定 (Language, Theme &amp; Appearance)</div>
+          <div class="form-row" style="margin-bottom:0;align-items:flex-end;">
+            <div class="form-group" style="min-width:250px;">
+              <label id="accThemeSelectLabel">アプリテーマ (App Theme)</label>
+              <select id="accountsViewThemeSelect" class="form-control" onchange="setThemePreference(this.value)">
+                <option value="auto">🌓 自動（OSのダーク/ライト設定に追随 / System Auto）</option>
+                <option value="dark">🌙 ダークテーマ (Dark Theme)</option>
+                <option value="light">☀️ ライトテーマ (Light Theme)</option>
+              </select>
+            </div>
+            <div class="form-group" style="min-width:250px;">
+              <label id="accLangSelectLabel">表示言語 (Display Language)</label>
+              <select id="accountsViewLangSelect" class="form-control" onchange="setLanguagePreference(this.value)">
+                <option value="auto">🌐 自動（OS・ブラウザ環境設定に合わせる / Auto）</option>
+                <option value="ja">🇯🇵 日本語 (Japanese)</option>
+                <option value="en">🇺🇸 English (英語)</option>
+              </select>
+            </div>
+            <button class="btn-secondary" onclick="openFontConfigModal()" id="accOpenFontBtn">🔤 フォント・文字サイズ設定を開く</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:12px;">アカウント追加・編集</div>
+          <input type="hidden" id="accId" value="0" />
+          <div class="form-row">
+            <div class="form-group" style="flex:1;">
+              <label>アカウント表示名</label>
+              <input type="text" id="accName" class="form-control" placeholder="例: 社内メール / Gmail" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>メールアドレス</label>
+              <input type="text" id="accEmail" class="form-control" placeholder="user@example.com" />
+            </div>
+            <div class="form-group">
+              <label>受信プロトコル</label>
+              <select id="accProtocol" class="form-control" onchange="onProtocolChange()">
+                <option value="pop3">POP3</option>
+                <option value="imap">IMAP4</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:1;">
+              <label>受信サーバー (Host)</label>
+              <input type="text" id="accInHost" class="form-control" placeholder="pop.example.com / imap.example.com" />
+            </div>
+            <div class="form-group" style="width:100px;">
+              <label>受信ポート</label>
+              <input type="number" id="accInPort" class="form-control" value="995" />
+            </div>
+            <div class="form-group">
+              <label>受信TLS</label>
+              <select id="accInTLS" class="form-control">
+                <option value="1">SSL/TLS 有効</option>
+                <option value="0">平文 (非TLS)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>ログインユーザー名</label>
+              <input type="text" id="accUser" class="form-control" placeholder="user@example.com" />
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>パスワード / アプリパスワード</label>
+              <input type="password" id="accPass" class="form-control" placeholder="••••••••" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:1;">
+              <label>SMTP送信サーバー (Host)</label>
+              <input type="text" id="accSmtpHost" class="form-control" placeholder="smtp.example.com (空欄時はローカル送信箱保存)" />
+            </div>
+            <div class="form-group" style="width:100px;">
+              <label>SMTPポート</label>
+              <input type="number" id="accSmtpPort" class="form-control" value="587" />
+            </div>
+            <div class="form-group">
+              <label>状態</label>
+              <select id="accEnabled" class="form-control">
+                <option value="1">有効</option>
+                <option value="0">無効</option>
+              </select>
+            </div>
+            <button class="btn-primary" onclick="saveAccount()">💾 アカウント保存</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>アカウント名</th>
+              <th>メールアドレス</th>
+              <th>受信方式</th>
+              <th>受信サーバー</th>
+              <th>SMTPサーバー</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="accountsTableBody"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- View 7: Help & Usage Manual -->
+    <main class="workspace-view" id="viewHelp" style="display:none;">
+      <div class="full-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">❓ Tunbridge 使い方・操作マニュアル</div>
+            <div class="panel-subtitle">マルチバケット・ナイーブベイズ自動分類、TOE学習、マグネット、単語確率インスペクタの仕組みと操作手順を解説します。</div>
+          </div>
+          <button class="btn-primary" onclick="selectFolder('received', 0, false, false, document.querySelector('#folderNavList .nav-item'))">📬 メーラー画面へ戻る</button>
+        </div>
+
+        <!-- Help Sub-Navigation Tabs -->
+        <div class="help-subnav">
+          <button class="help-tab-btn active" data-htab="quickstart" onclick="switchHelpTab('quickstart', this)">📖 1. 概要・クイックスタート</button>
+          <button class="help-tab-btn" data-htab="mua_toe" onclick="switchHelpTab('mua_toe', this)">📬 2. メーラー操作 &amp; TOE再学習</button>
+          <button class="help-tab-btn" data-htab="word_corpus" onclick="switchHelpTab('word_corpus', this)">🔬 3. 単語確率・コーパス辞書</button>
+          <button class="help-tab-btn" data-htab="magnet_bucket" onclick="switchHelpTab('magnet_bucket', this)">🧲 4. マグネット &amp; バケット管理</button>
+          <button class="help-tab-btn" data-htab="account_faq" onclick="switchHelpTab('account_faq', this)">⚙️ 5. POP3/IMAP設定 &amp; FAQ</button>
+        </div>
+
+        <!-- Help Tab 1: Overview & Quickstart -->
+        <div class="help-section active" id="helpSec_quickstart">
+          <div class="help-hero">
+            <h3>🚀 Tunbridge とは？</h3>
+            <p>
+              <strong>Tunbridge</strong> は、単なる「迷惑メール／通常メール」の2値判定ではなく、<strong>「通常受信」「業務・開発」「メルマガ・情報」「金融・請求」「迷惑メール」など複数のバケット（カテゴリ）へナイーブベイズ統計モデルで自動分別する</strong>メールクライアント（MUA）です。<br/>
+              誤って分類されたメールがあったときに正しいバケットを1クリックするだけで学習する <strong>TOE（Train On Error）方式</strong> を採用しており、使うほどあなた専用の分別精度が向上します。
+            </p>
+          </div>
+
+          <div class="card">
+            <div style="font-weight:700;margin-bottom:8px;">🔄 メール受信時の POPFile 自動判定パイプライン</div>
+            <div class="help-flow-box">
+              <div class="help-flow-step">1. メール受信 / 取り込み</div>
+              <span>➔</span>
+              <div class="help-flow-step" style="border-color:#f59e0b;color:#fcd34d;">2. 🧲 マグネット照合 (優先ルール)</div>
+              <span>➔</span>
+              <div class="help-flow-step" style="border-color:#3b82f6;color:#93c5fd;">3. 🤖 形態素・疑似トークン分解 &amp; ベイズ確率計算</div>
+              <span>➔</span>
+              <div class="help-flow-step" style="border-color:#10b981;color:#6ee7b7;">4. 🏷️ X-Text-Classification 付与 &amp; バケット振り分け</div>
+            </div>
+          </div>
+
+          <div style="font-weight:700;font-size:15px;margin-top:4px;">⚡ 3ステップで今すぐ体験する（クイックスタート）</div>
+          <div class="help-step-grid">
+            <div class="help-step-card">
+              <span class="help-step-num">STEP 1</span>
+              <div style="font-weight:700;font-size:14px;">新着サンプルメールを受信する</div>
+              <p style="color:var(--text-muted);font-size:12.5px;flex:1;">
+                外部メールサーバーを設定しなくても、画面上部の「⚡ デモ新着メール生成」または左サイドバーの「🎲 新着3通生成」から未学習のサンプルメールを即座に受信・自動分類できます。
+              </p>
+              <button class="btn-primary" onclick="quickSimulate(3, 'random');selectFolder('received',0,false,false,document.querySelector('#folderNavList .nav-item'));">🎲 今すぐ新着3通を生成して見る</button>
+            </div>
+
+            <div class="help-step-card">
+              <span class="help-step-num">STEP 2</span>
+              <div style="font-weight:700;font-size:14px;">分類根拠（単語の色分け・確率表）を見る</div>
+              <p style="color:var(--text-muted);font-size:12.5px;flex:1;">
+                メールを開き、閲覧ペイン上部のタブを「🎨 POPFile 単語色分けビュー」や「🔬 分類根拠・単語確率マトリクス」に切り替えると、どの単語がどのバケットの根拠になったか一目で分かります。
+              </p>
+              <button class="btn-secondary" onclick="state.readerTab='colored';selectFolder('received',0,false,false,document.querySelector('#folderNavList .nav-item'));">🎨 単語色分けビューを開く</button>
+            </div>
+
+            <div class="help-step-card">
+              <span class="help-step-num">STEP 3</span>
+              <div style="font-weight:700;font-size:14px;">バケットをクリックして再学習 (TOE) する</div>
+              <p style="color:var(--text-muted);font-size:12.5px;flex:1;">
+                もしメールの分類先を変えたい場合は、メール閲覧画面上部の「バケット変更・学習」バーにある目的のバケットボタンをクリックします。即座にコーパス辞書が更新され、次回以降の判定に反映されます。
+              </p>
+              <button class="btn-secondary" onclick="switchMainView('history')">🕒 分類・TOE学習履歴を見る</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Help Tab 2: MUA & TOE Training -->
+        <div class="help-section" id="helpSec_mua_toe">
+          <div class="card">
+            <h3 style="margin-bottom:10px;">📬 メーラー（MUA）画面の基本操作</h3>
+            <ul style="padding-left:20px;display:flex;flex-direction:column;gap:8px;">
+              <li><strong>MUAフォルダ切り替え（左サイドバー上段）:</strong> 「すべての受信箱」「未読メール」「スター付き」「送信済みメール」「ゴミ箱」を切り替えてメール一覧を表示します。</li>
+              <li><strong>メールプロバイダ別分離・絞り込み:</strong> メール一覧上部の「プロバイダ別に分離」チェック（または左サイドバーの「プロバイダ・アカウント別」）で、受信したメールプロバイダ（Gmail, Outlook, Yahoo!メール, 社内メール など）ごとにセクション分け表示・タブ絞り込みができます。</li>
+              <li><strong>キーボードナビゲーション &amp; 安全削除 (Undo対応):</strong> メール一覧では <span class="help-code">↑</span> / <span class="help-code">↓</span>（上下移動）、<span class="help-code">Home</span> / <span class="help-code">End</span>（先頭・末尾へ移動）、<span class="help-code">PageUp</span> / <span class="help-code">PageDown</span>（1画面分移動）で高速にメールを切り替えられます。<span class="help-code">Delete</span> キーで選択中のメールを削除でき、削除後は自動的に直下（または直上）のメールへフォーカスが移るため連続操作が可能です。誤って削除した場合も <span class="help-code">Ctrl+Z</span> または「↩ 削除を元に戻す」ボタンで即座に復元できます。</li>
+              <li><strong>POPFileバケット別表示（左サイドバー中段）:</strong> 「通常受信 (Inbox)」「業務・開発 (Work)」「メルマガ・情報 (News)」「金融・請求 (Finance)」「迷惑メール (Spam)」など、分類されたバケット単位でメールを絞り込みます。</li>
+              <li><strong>キーワード検索:</strong> 一覧上部の検索ボックスにキーワードを入力して <span class="help-code">Enter</span> または「検索」を押すと、件名・差出人・本文を横断検索します。</li>
+              <li><strong>詳細なメールヘッダ表示 &amp; カスタマイズ:</strong> メール閲覧画面上部には基本5項目（<span class="help-code">From / To / Cc / Bcc / Subject</span>）に加え、<strong>「⚙️ 表示ヘッダ設定」</strong>で指定した任意のヘッダ（<span class="help-code">Date</span>, <span class="help-code">X-Text-Classification</span>, <span class="help-code">Message-ID</span>, <span class="help-code">User-Agent</span> 等）を常時表示できます。また<strong>「📋 その他のヘッダを表示」</strong>ボタンで残りの全ヘッダをワンクリックで展開・折りたたみできます。</li>
+              <li><strong>エリア全面の TextArea 本文表示:</strong> 「📄 メール本文 (TextArea)」タブでは、表示エリアいっぱいに広がる読み取り専用 <span class="help-code">TextArea</span> 内に本文が表示され、テキストの選択・コピーやキーボードスクロールが快適に行えます。</li>
+              <li><strong>新規作成・返信（差出人／全員）・転送・削除:</strong> 左上の「✉️ 新規メール作成」からメール（To/Cc/Bcc・添付ファイル対応）を作成・送信できます。各メール画面の「↩️ 差出人に返信」「↩️ 全員に返信」「➡️ 転送」「🗑️ 削除」「💾 .eml出力」で個別操作が行えます。</li>
+              <li><strong>📄 .eml インポート / エクスポート:</strong> 既存のメーラーから保存した標準 RFC822（<span class="help-code">.eml</span>）ファイルをインポートしてPOPFileで分類したり、POPFileが挿入した <span class="help-code">X-Text-Classification</span> ヘッダ付きで <span class="help-code">.eml</span> 保存できます。</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:10px;">↻ TOE（Train On Error：誤判定時学習）の使い方</h3>
+            <p style="margin-bottom:10px;">
+              POPFileの最大の特徴は、<strong>「分類が間違っていたときだけ正しいバケットを教える（TOE）」</strong>という効率的な学習法です。
+            </p>
+            <div class="help-callout">
+              <strong>💡 再分類すると内部で何が起きますか？</strong><br/>
+              1. そのメールが既に旧バケットで学習済みだった場合、旧バケットのコーパスから単語出現回数を減算します。<br/>
+              2. 新しく指定したバケットのコーパスへ、メール内の全トークン（件名・差出人・本文）の出現回数を加算します。<br/>
+              3. メールヘッダの <span class="help-code">X-Text-Classification: &lt;新バケット名&gt;</span> を書き換え、分類精度統計（FP: 偽陽性 / FN: 偽陰性）を更新します。
+            </div>
+          </div>
+        </div>
+
+        <!-- Help Tab 3: Word Score Matrix & Corpus -->
+        <div class="help-section" id="helpSec_word_corpus">
+          <div class="card">
+            <h3 style="margin-bottom:10px;">🎨 POPFile 単語色分けビュー &amp; 🔬 単語確率マトリクス</h3>
+            <p style="margin-bottom:10px;">
+              なぜそのバケットに分類されたのか（ブラックボックスにならない透明性）を確認するため、メール閲覧画面には4つの表示タブがあります。
+            </p>
+            <ul style="padding-left:20px;display:flex;flex-direction:column;gap:8px;">
+              <li><strong>📄 メール本文:</strong> 通常の読みやすいプレーンテキスト形式でメールを表示します。</li>
+              <li><strong>🎨 POPFile 単語色分けビュー:</strong> 件名や本文に含まれる単語のうち、コーパス辞書に登録されている単語を<strong>「最も強く示唆するバケットのテーマカラー」</strong>でハイライト表示します。単語にマウスカーソルを合わせると、バケット名・確率・出現回数がポップアップ表示されます。</li>
+              <li><strong>🔬 分類根拠・単語確率マトリクス:</strong>
+                <ul style="padding-left:20px;margin-top:4px;">
+                  <li>上段に各バケットの<strong>事後確率 $P(\text{Bucket} \mid \text{Message})$ のグラフ</strong>を表示します。</li>
+                  <li>下段に、そのメールの分類に強く寄与した上位トークンのバケット別スコア一覧表を表示します。</li>
+                </ul>
+              </li>
+              <li><strong>📋 ヘッダ・X-Text-Classification:</strong> POPFileが付与した分類ヘッダおよびRFC822生ヘッダを確認できます。</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:10px;">🏷️ POPFile 特有の「疑似トークン（Pseudo-Tokens）」とは？</h3>
+            <p style="margin-bottom:10px;">
+              POPFileは本文の単語だけでなく、メールヘッダやHTML構造の特徴も特別なプレフィックス付きトークンとして学習します：
+            </p>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>疑似トークン形式</th>
+                  <th>意味・抽出元</th>
+                  <th>活用例</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="help-code">from:アドレスまたは名前</span></td>
+                  <td>差出人（From）ヘッダに含まれるアドレスや単語</td>
+                  <td><span class="help-code">from:notifications@github.com</span> ➔ 業務バケットの強い根拠</td>
+                </tr>
+                <tr>
+                  <td><span class="help-code">domain:ドメイン名</span></td>
+                  <td>差出人メールアドレスの <span class="help-code">@</span> 以降のドメイン</td>
+                  <td><span class="help-code">domain:metro-bank.co.jp</span> ➔ 金融バケットの強い根拠</td>
+                </tr>
+                <tr>
+                  <td><span class="help-code">subject:単語</span></td>
+                  <td>件名（Subject）に出現した単語（通常の本文単語より重み付け）</td>
+                  <td><span class="help-code">subject:当選</span>, <span class="help-code">subject:議事録</span></td>
+                </tr>
+                <tr>
+                  <td><span class="help-code">url:ホスト名</span></td>
+                  <td>本文やHTMLリンク内のURLホスト名</td>
+                  <td><span class="help-code">url:claim-bonus-now.xyz</span> ➔ 迷惑メールの強い根拠</td>
+                </tr>
+                <tr>
+                  <td><span class="help-code">html:タグ名</span></td>
+                  <td>HTMLメール内の <span class="help-code">&lt;form&gt;</span>, <span class="help-code">&lt;img&gt;</span>, <span class="help-code">&lt;a&gt;</span> タグ等</td>
+                  <td>フィッシングメール特有のフォーム埋め込み等の検出</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top:12px;">
+              <button class="btn-secondary" onclick="switchMainView('corpus')">📚 コーパス・単語確率辞書画面を開く</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Help Tab 4: Magnets & Buckets -->
+        <div class="help-section" id="helpSec_magnet_bucket">
+          <div class="card">
+            <h3 style="margin-bottom:10px;">🧲 マグネット（無条件振り分けルール）の活用法</h3>
+            <p style="margin-bottom:10px;">
+              <strong>マグネット（Magnets）</strong>は、ナイーブベイズによる統計判定よりも<strong>前（最優先）</strong>に適用される確定振り分けルールです。
+            </p>
+            <ul style="padding-left:20px;display:flex;flex-direction:column;gap:8px;">
+              <li><strong>どんなときに使う？</strong> 「重要取引先ドメイン（例: <span class="help-code">vip-partner.co.jp</span>）からのメールは、文面にどんな宣伝文句が含まれていても100%確実に『業務・開発』バケットへ入れる」といったホワイトリスト／ブラックリスト用途に最適です。</li>
+              <li><strong>簡単な登録方法:</strong>
+                <ol style="padding-left:20px;margin-top:4px;">
+                  <li>メール閲覧画面右上の <strong>「🧲 差出人マグネット登録」</strong> ボタンを押すと、そのメールの差出人アドレスが自動入力された状態でマグネット画面が開きます。</li>
+                  <li>または左メニューの <strong>「🧲 マグネット (ルール振り分け)」</strong> から、対象フィールド（From / Domain / Subject / To）とパターンを指定して追加します。</li>
+                </ol>
+              </li>
+              <li><strong>既存メールへの再適用:</strong> マグネットを追加・変更したあと、「🔄 既存メールにマグネットを再適用」ボタンを押すと、受信箱内のメールを一括で再スキャンします。</li>
+            </ul>
+            <div style="margin-top:12px;">
+              <button class="btn-secondary" onclick="switchMainView('magnets')">🧲 マグネット管理画面を開く</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:10px;">📊 バケットの追加・管理・リセット</h3>
+            <p style="margin-bottom:10px;">
+              左メニューの <strong>「📊 バケット管理・分類統計」</strong> から、自分のライフスタイルや業務に合わせて新しいバケット（例：<span class="help-code">shopping</span>（通販）、<span class="help-code">travel</span>（旅行予約）、<span class="help-code">sns</span>（SNS通知）など）を自由に追加できます。
+            </p>
+            <ul style="padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+              <li>新規バケットを作成したら、該当するメールを数通そのバケットへ「バケット変更・学習（TOE）」させるだけで、以降は自動的にそのバケットへ分類されるようになります。</li>
+              <li>特定バケットの学習データをやり直したい場合は「コーパス消去」ボタンでいつでも初期化できます。</li>
+            </ul>
+            <div style="margin-top:12px;">
+              <button class="btn-secondary" onclick="switchMainView('buckets')">📊 バケット管理・分類統計画面を開く</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Help Tab 5: POP3/IMAP Accounts & FAQ -->
+        <div class="help-section" id="helpSec_account_faq">
+          <div class="card">
+            <h3 style="margin-bottom:10px;">⚙️ 実際のメールサーバー（POP3 / IMAP4 / SMTP）との接続設定</h3>
+            <p style="margin-bottom:10px;">
+              左メニューの <strong>「⚙️ POP3 / IMAP / SMTP 設定」</strong> からお使いのメールアカウントを登録すると、実際のメールを受信してPOPFileで自動分類できます。
+            </p>
+            <table class="data-table" style="margin-bottom:12px;">
+              <thead>
+                <tr>
+                  <th>プロトコル</th>
+                  <th>標準ポート番号 (SSL/TLS)</th>
+                  <th>特徴・動作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>POP3 (推奨)</strong></td>
+                  <td><span class="help-code">995</span> (TLS有効) / <span class="help-code">110</span> (平文)</td>
+                  <td>UIDLにより未受信メールのみを高速にダウンロードし、POPFileで分類します（サーバー上のメールは削除しません）。</td>
+                </tr>
+                <tr>
+                  <td><strong>IMAP4</strong></td>
+                  <td><span class="help-code">993</span> (TLS有効) / <span class="help-code">143</span> (平文)</td>
+                  <td>INBOXの最新メールを <span class="help-code">BODY.PEEK[]</span> で既読状態を変えずに取得し、POPFileで分類します。</td>
+                </tr>
+                <tr>
+                  <td><strong>SMTP (送信)</strong></td>
+                  <td><span class="help-code">587</span> (STARTTLS/Auth)</td>
+                  <td>新規作成・返信メールを外部へ送信します（未設定の場合はローカル送信箱へ保存されるためオフラインでもテスト可能です）。</td>
+                </tr>
+              </tbody>
+            </table>
+            <button class="btn-secondary" onclick="switchMainView('accounts')">⚙️ アカウント設定画面を開く</button>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-bottom:10px;">💬 よくある質問（FAQ）</h3>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <div>
+                <strong>Q1. メールが「未分類 (Unclassified)」になるのはなぜですか？</strong>
+                <p style="color:var(--text-muted);font-size:12.5px;margin-top:2px;">
+                  A. コーパス辞書にまだ一度も登場していない単語ばかりのメールや、どのバケットの事後確率もしきい値（32%）未満で判断がつかないメールは、誤判定を防ぐため安全側の「未分類」に入ります。閲覧画面で正しいバケットをクリックして学習させると、次回から自動分類されるようになります。
+                </p>
+              </div>
+              <div>
+                <strong>Q2. 間違えて別のバケットのボタンを押して学習させてしまいました。取り消せますか？</strong>
+                <p style="color:var(--text-muted);font-size:12.5px;margin-top:2px;">
+                  A. はい、そのまま本来の正しいバケットボタンをクリックしてください。POPFileエンジンが自動的に「間違えて学習したバケットから単語カウントを引き算」し、「正しいバケットへ足し算」して修正します。
+                </p>
+              </div>
+              <div>
+                <strong>Q3. 他のメールソフト（ThunderbirdやOutlookなど）と連携して使えますか？</strong>
+                <p style="color:var(--text-muted);font-size:12.5px;margin-top:2px;">
+                  A. 各メールの「💾 .eml出力」で書き出されたファイルには、本家POPFileと同じ <span class="help-code">X-Text-Classification: &lt;バケット名&gt;</span> ヘッダが埋め込まれています。また、外部から <span class="help-code">.eml</span> ファイルをインポートして分類根拠を詳しく調べるアナライザとしても活用できます。
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Compose Modal -->
+  <div class="modal-backdrop" id="composeModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span id="composeModalTitle">✉️ メール作成・送信</span>
+        <button class="btn-secondary" onclick="closeModal('composeModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>送信アカウント</label>
+          <select id="composeAccount" class="form-control"></select>
+        </div>
+        <div class="form-group">
+          <label>宛先 (To)</label>
+          <input type="text" id="composeTo" class="form-control" placeholder="recipient@example.com" />
+        </div>
+        <div class="form-row" style="margin-bottom:0;">
+          <div class="form-group" style="flex:1;">
+            <label>Cc (任意)</label>
+            <input type="text" id="composeCc" class="form-control" placeholder="cc@example.com" />
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label>Bcc (任意)</label>
+            <input type="text" id="composeBcc" class="form-control" placeholder="bcc@example.com" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>件名 (Subject)</label>
+          <input type="text" id="composeSubject" class="form-control" placeholder="件名を入力..." />
+        </div>
+        <div class="form-group">
+          <label>本文</label>
+          <textarea id="composeBody" class="form-control" rows="8" placeholder="メール本文を入力..."></textarea>
+        </div>
+        <div class="form-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <label style="font-weight:600;color:var(--text-main);">📎 添付ファイル (複数選択・ドラッグ＆ドロップ対応)</label>
+            <button type="button" class="btn-secondary" onclick="document.getElementById('composeAttachmentInput').click()">＋ ファイルを追加</button>
+          </div>
+          <input type="file" id="composeAttachmentInput" multiple style="display:none;" onchange="onComposeFilesSelected(event)" />
+          <div id="composeAttachmentDropzone" class="attachment-dropzone"
+               ondragover="event.preventDefault();this.classList.add('dragover');"
+               ondragleave="this.classList.remove('dragover');"
+               ondrop="onComposeFilesDropped(event)">
+            <div id="composeAttachmentsList" class="compose-attachments-list"></div>
+            <div id="composeAttachmentHint" style="font-size:11.5px;color:var(--text-muted);text-align:center;padding:6px 0;">
+              ここにファイルをドロップするか、「＋ ファイルを追加」で添付できます
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('composeModal')">キャンセル</button>
+        <button class="btn-primary" onclick="sendComposedEmail()">📤 送信する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Simulate Incoming Modal -->
+  <div class="modal-backdrop" id="simulateModal">
+    <div class="modal" style="width:460px;">
+      <div class="modal-header">
+        <span>⚡ デモ新着メール生成 (自動分類テスト)</span>
+        <button class="btn-secondary" onclick="closeModal('simulateModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12.5px;color:var(--text-muted);">
+          未学習の新着サンプルメールを受信させ、POPFileのナイーブベイズ分類器およびマグネットがリアルタイムにどのバケットへ振り分けるか試すことができます。
+        </p>
+        <div class="form-group">
+          <label>生成するメールのカテゴリ傾向</label>
+          <select id="simCategory" class="form-control">
+            <option value="random">🎲 ランダム (全カテゴリから混合生成)</option>
+            <option value="spam">🚨 迷惑メール・フィッシング (Spam)</option>
+            <option value="work">💼 業務・プロジェクト・開発 (Work)</option>
+            <option value="finance">🏦 金融・銀行明細・請求 (Finance)</option>
+            <option value="newsletter">📰 メルマガ・EC案内 (Newsletter)</option>
+            <option value="inbox">🏠 個人連絡・日常メール (Inbox)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>生成通数</label>
+          <select id="simCount" class="form-control">
+            <option value="1">1 通</option>
+            <option value="3" selected>3 通</option>
+            <option value="5">5 通</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('simulateModal')">閉じる</button>
+        <button class="btn-primary" onclick="runModalSimulate()">⚡ 新着メールを受信・自動分類</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import EML Modal -->
+  <div class="modal-backdrop" id="importModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span>📄 RFC822 (.eml) メールインポート & 自動分類</span>
+        <button class="btn-secondary" onclick="closeModal('importModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>.eml ファイルを選択、または下にRFC822メールソースを貼り付けてください</label>
+          <input type="file" accept=".eml,.txt" class="form-control" onchange="onEMLFileSelected(event)" />
+        </div>
+        <div class="form-group">
+          <label>生メールソース (Headers + Body)</label>
+          <textarea id="importRawText" class="form-control" rows="10" placeholder="From: sender@example.com&#10;To: me@example.com&#10;Subject: テストメール&#10;&#10;ここに本文を入力..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('importModal')">キャンセル</button>
+        <button class="btn-primary" onclick="submitImportEML()">📥 インポートしてPOPFile分類</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header Display Customization Modal -->
+  <div class="modal-backdrop" id="headerConfigModal">
+    <div class="modal" style="width:540px;">
+      <div class="modal-header">
+        <span>⚙️ 常時表示するメールヘッダのカスタマイズ</span>
+        <button class="btn-secondary" onclick="closeModal('headerConfigModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12.5px;color:var(--text-muted);line-height:1.5;">
+          基本ヘッダ（<strong>From / To / Cc / Bcc / Subject</strong>）は常に表示されます。<br/>
+          それに加えて<strong>常時メールヘッダ欄に表示したい項目</strong>を選択・追加してください（それ以外のヘッダもメール画面の「その他のヘッダを表示」から随時確認できます）。
+        </p>
+
+        <div class="form-group">
+          <label style="font-weight:700;color:var(--text-main);margin-bottom:4px;">プリセットヘッダから選択:</label>
+          <div id="presetHeadersChecklist" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--bg-app);padding:12px;border-radius:8px;border:1px solid var(--border);"></div>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight:700;color:var(--text-main);">任意のカスタムヘッダ名を追加:</label>
+          <div class="form-row" style="margin-bottom:4px;">
+            <input type="text" id="customHeaderInput" class="form-control" style="flex:1;" placeholder="例: X-Spam-Status, List-Unsubscribe, Received" onkeydown="if(event.key==='Enter') addCustomPinnedHeader()" />
+            <button class="btn-secondary" onclick="addCustomPinnedHeader()">＋ 追加</button>
+          </div>
+          <div id="activePinnedHeadersChips" class="header-chip-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="resetPinnedHeadersDefault()">標準に戻す</button>
+        <button class="btn-primary" onclick="closeModal('headerConfigModal')">✓ 完了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Language, Theme, Font & Size Customization Modal -->
+  <div class="modal-backdrop" id="fontConfigModal">
+    <div class="modal" style="width:580px;">
+      <div class="modal-header">
+        <span id="fontModalTitle">🌐 言語・テーマ・フォントの設定</span>
+        <button class="btn-secondary" onclick="closeModal('fontConfigModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Language & Theme Section -->
+        <div class="card" style="padding:14px;">
+          <div style="font-weight:700;margin-bottom:8px;color:var(--warning);" id="modalLangSectionTitle">🌐 表示言語 &amp; 🌓 テーマ設定 (Language &amp; Theme)</div>
+          <div class="form-row" style="margin-bottom:0;align-items:center;">
+            <div class="form-group" style="flex:1;min-width:220px;">
+              <label id="modalThemeLabel">アプリテーマ (App Theme)</label>
+              <select id="modalThemeSelect" class="form-control" onchange="setThemePreference(this.value)">
+                <option value="auto">🌓 自動（OS設定に追随 / Follow OS）</option>
+                <option value="dark">🌙 ダークテーマ (Dark)</option>
+                <option value="light">☀️ ライトテーマ (Light)</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;min-width:220px;">
+              <label id="modalLangLabel">言語 (Language)</label>
+              <select id="modalLangSelect" class="form-control" onchange="setLanguagePreference(this.value)">
+                <option value="auto">🌐 自動（環境設定に合わせる / Auto）</option>
+                <option value="ja">🇯🇵 日本語 (Japanese)</option>
+                <option value="en">🇺🇸 English (英語)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Header Font Section -->
+        <div class="card" style="padding:14px;">
+          <div style="font-weight:700;margin-bottom:10px;color:#93c5fd;">📋 メールヘッダ部のフォント設定</div>
+          <div class="form-row" style="margin-bottom:10px;">
+            <div class="form-group" style="flex:1;">
+              <label>ヘッダ用フォント種類（プリセット）</label>
+              <select id="headerFontPreset" class="form-control" onchange="onFontPresetChange('header')">
+                <option value='"BIZ UDGothic", "Yu Gothic UI", "Meiryo", sans-serif'>BIZ UDGothic (モリサワUDゴシック・推奨)</option>
+                <option value='"Yu Gothic UI", "Yu Gothic", sans-serif'>Yu Gothic UI (游ゴシック UI)</option>
+                <option value='"Meiryo", "Meiryo UI", sans-serif'>Meiryo (メイリオ)</option>
+                <option value='"MS Gothic", "BIZ UDGothic", monospace'>ＭＳ ゴシック (等幅ゴシック)</option>
+                <option value='Consolas, "BIZ UDGothic", monospace'>Consolas + BIZ UDGothic (欧文等幅)</option>
+                <option value='"BIZ UDPMincho", "Yu Mincho", serif'>BIZ UDPMincho / 游明朝 (明朝体)</option>
+                <option value='custom'>カスタム指定（下の欄に直接入力）</option>
+              </select>
+            </div>
+            <div class="form-group" style="width:180px;">
+              <label>フォント名直接指定</label>
+              <input type="text" id="headerFontCustom" class="form-control" placeholder="フォントファミリ名" oninput="updateFontSettingsFromUI()" />
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:0;align-items:center;">
+            <div class="form-group" style="flex:1;">
+              <label>ヘッダ文字サイズ: <strong id="headerFontSizeLabel">14.5px</strong></label>
+              <input type="range" id="headerFontSizeRange" min="11" max="24" step="0.5" value="14.5" oninput="updateFontSettingsFromUI()" />
+            </div>
+            <div style="display:flex;gap:6px;margin-top:14px;">
+              <button class="btn-secondary" onclick="stepFontSize('header', -1)">A-</button>
+              <button class="btn-secondary" onclick="stepFontSize('header', 1)">A+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Body Font Section -->
+        <div class="card" style="padding:14px;">
+          <div style="font-weight:700;margin-bottom:10px;color:#6ee7b7;">📄 メール本文部 (TextArea / ビュー) のフォント設定</div>
+          <div class="form-row" style="margin-bottom:10px;">
+            <div class="form-group" style="flex:1;">
+              <label>本文用フォント種類（プリセット）</label>
+              <select id="bodyFontPreset" class="form-control" onchange="onFontPresetChange('body')">
+                <option value='"BIZ UDGothic", "Consolas", "Meiryo", monospace'>BIZ UDGothic + Consolas (UD等幅・推奨)</option>
+                <option value='"MS Gothic", "Consolas", monospace'>ＭＳ ゴシック (クラシックメーラー等幅)</option>
+                <option value='"Meiryo", "Segoe UI", sans-serif'>Meiryo (メイリオ・プロポーショナル)</option>
+                <option value='"Yu Gothic UI", "Yu Gothic", sans-serif'>Yu Gothic UI (游ゴシック)</option>
+                <option value='"BIZ UDPMincho", "Yu Mincho", serif'>BIZ UDPMincho / 游明朝 (明朝体)</option>
+                <option value='Consolas, "Courier New", "BIZ UDGothic", monospace'>Consolas / Courier New (コード等幅)</option>
+                <option value='custom'>カスタム指定（下の欄に直接入力）</option>
+              </select>
+            </div>
+            <div class="form-group" style="width:180px;">
+              <label>フォント名直接指定</label>
+              <input type="text" id="bodyFontCustom" class="form-control" placeholder="フォントファミリ名" oninput="updateFontSettingsFromUI()" />
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:0;align-items:center;">
+            <div class="form-group" style="flex:1;">
+              <label>本文文字サイズ: <strong id="bodyFontSizeLabel">16px</strong></label>
+              <input type="range" id="bodyFontSizeRange" min="12" max="28" step="0.5" value="16" oninput="updateFontSettingsFromUI()" />
+            </div>
+            <div class="form-group" style="width:130px;">
+              <label>本文の行間: <strong id="bodyLineHeightLabel">1.75</strong></label>
+              <input type="range" id="bodyLineHeightRange" min="1.2" max="2.3" step="0.05" value="1.75" oninput="updateFontSettingsFromUI()" />
+            </div>
+            <div style="display:flex;gap:6px;margin-top:14px;">
+              <button class="btn-secondary" onclick="stepFontSize('body', -1)">A-</button>
+              <button class="btn-secondary" onclick="stepFontSize('body', 1)">A+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Preview Box -->
+        <div class="card" id="fontPreviewCard" style="background:var(--bg-topbar);padding:12px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">リアルタイムプレビュー:</div>
+          <div style="font-family:var(--header-font-family);font-size:var(--header-font-size);border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:8px;">
+            <strong style="color:var(--text-muted);">Subject:</strong> <strong id="fontPreviewSubjectText" style="font-size:calc(var(--header-font-size) + 2px);color:var(--text-main);">【議事録】次期リリースv2.4 スプリントレビュー</strong><br/>
+            <strong style="color:var(--text-muted);">From:</strong> 鈴木 一郎 &lt;ichiro.suzuki@corp-tech.co.jp&gt;
+          </div>
+          <div id="fontPreviewBodyText" style="font-family:var(--body-font-family);font-size:var(--body-font-size);line-height:var(--body-line-height);color:var(--text-secondary);">
+            お疲れ様です。本日のミーティング議事録とAPI仕様書を共有いたします。<br/>
+            1234567890 ABCDEFG あいうえお 漢字カタカナ表示確認
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="resetFontSettingsDefault()">標準サイズ・フォントに戻す</button>
+        <button class="btn-primary" onclick="closeModal('fontConfigModal')">✓ 完了</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="/i18n.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

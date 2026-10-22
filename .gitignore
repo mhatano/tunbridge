@@ -1,0 +1,25 @@
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+tunbridge
+
+# Operational SQLite database & WAL files (contains user emails and account settings)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# WebView2 runtime user data directory
+.webview2_data/
+
+# Exported / local email files
+*.eml
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
