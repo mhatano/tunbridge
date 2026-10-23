@@ -23,6 +23,7 @@
       <button class="btn-secondary" id="btnTopSimulate" onclick="openSimulateModal()" title="サンプル新着メールを生成して自動分類をテスト">⚡ デモ新着メール生成</button>
       <button class="btn-secondary" id="btnTopImport" onclick="openImportModal()" title=".eml 形式メールをインポート">📄 .emlインポート</button>
       <button class="btn-primary" id="btnTopFetch" onclick="fetchAllAccounts()" title="設定済みのPOP3/IMAPサーバーからメールを受信">📥 送受信 (POP3/IMAP)</button>
+      <button class="btn-danger" id="btnTopNetErrorLog" style="display:none;font-weight:700;" onclick="openNetLogModal()" title="直前の送受信失敗時のソケット・プロトコル診断ログを表示">⚠️ 通信エラー診断ログ</button>
       <button class="btn-secondary" id="btnTopFontConfig" onclick="openFontConfigModal()" title="表示言語・テーマ・フォントを設定">🌐 言語・フォント設定</button>
       <select id="topbarThemeSelect" class="form-control" style="padding:4px 8px;font-size:12px;height:30px;width:auto;" onchange="setThemePreference(this.value)" title="アプリテーマの切り替え / Switch App Theme">
         <option value="auto">🌓 自動 (OS)</option>
@@ -382,6 +383,22 @@
               </select>
             </div>
             <button class="btn-secondary" onclick="openFontConfigModal()" id="accOpenFontBtn">🔤 フォント・文字サイズ設定を開く</button>
+          </div>
+        </div>
+
+        <div class="card" id="accountsNetErrorBanner" style="display:none;margin-bottom:20px;border-color:var(--danger);background:rgba(239,68,68,0.08);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:20px;">🚨</span>
+              <div>
+                <div style="font-weight:700;color:var(--danger);" id="accountsNetErrorBannerTitle">直前のメール送受信で通信・認証エラーが発生しました</div>
+                <div style="font-size:12px;color:var(--text-muted);" id="accountsNetErrorBannerSub">ソケットの接続状態、アドレス・ポート番号の誤り、SSL/TLS設定、またはアカウント認証のどこで失敗したかをネットワークログで確認できます。</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn-primary" style="background:var(--danger);" onclick="openNetLogModal()">🔍 ネットワーク診断ログを表示</button>
+              <button class="btn-secondary" onclick="clearFailedNetLogs()">✕ 閉じる</button>
+            </div>
           </div>
         </div>
 
@@ -1022,6 +1039,22 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="resetFontSettingsDefault()">標準サイズ・フォントに戻す</button>
         <button class="btn-primary" onclick="closeModal('fontConfigModal')">✓ 完了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Network Error Diagnostic Log Modal (Only shown on Send/Receive failure) -->
+  <div class="modal-backdrop" id="netLogModal" style="z-index:1500;">
+    <div class="modal" style="width:760px;max-width:96vw;max-height:90vh;">
+      <div class="modal-header">
+        <span id="netLogModalTitle">🔍 送受信エラー・ネットワーク診断ログ</span>
+        <button class="btn-secondary" onclick="closeModal('netLogModal')">✕</button>
+      </div>
+      <div class="modal-body" id="netLogModalBody" style="gap:14px;">
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <button class="btn-secondary" onclick="copyNetLogToClipboard()">📋 診断ログをクリップボードにコピー</button>
+        <button class="btn-primary" onclick="closeModal('netLogModal')">閉じる</button>
       </div>
     </div>
   </div>

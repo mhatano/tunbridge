@@ -3,7 +3,6 @@ package mail
 import (
 	"bufio"
 	"bytes"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,9 +10,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
-	"net"
 	"net/mail"
-	"net/smtp"
 	"net/url"
 	"path/filepath"
 	"strconv"
@@ -506,23 +503,27 @@ func wrapBase64Lines(b64 string) string {
 
 // FetchAccount connects to a POP3 or IMAP server, downloads new messages, classifies them via POPFile, and stores them.
 func FetchAccount(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, error) {
+	n, _, err := FetchAccountWithDiag(acc, store, engine)
+	return n, err
+}
+
+// FetchAccountWithDiag connects to a POP3 or IMAP server while recording a detailed NetworkDiagReport.
+func FetchAccountWithDiag(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, *NetworkDiagReport, error) {
+	protoName := "POP3"
 	if strings.EqualFold(acc.Protocol, "imap") {
-		return fetchIMAP(acc, store, engine)
+		protoName = "IMAP4"
 	}
-	return fetchPOP3(acc, store, engine)
+	diag := NewNetworkDiagReport(acc.ID, acc.Name, "receive", protoName, acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS, acc.Username)
+	if strings.EqualFold(acc.Protocol, "imap") {
+		n, err := fetchIMAPWithDiag(acc, store, engine, diag)
+		return n, diag, err
+	}
+	n, err := fetchPOP3WithDiag(acc, store, engine, diag)
+	return n, diag, err
 }
 
-func dialMailServer(host string, port int, useTLS bool) (net.Conn, error) {
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	if useTLS {
-		return tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: host})
-	}
-	return dialer.Dial("tcp", addr)
-}
-
-func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, error) {
-	conn, err := dialMailServer(acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS)
+func fetchPOP3WithDiag(acc *db.Account, store *db.Store, engine *classifier.Engine, diag *NetworkDiagReport) (int, error) {
+	conn, err := dialMailServerWithDiag(acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS, diag)
 	if err != nil {
 		return 0, fmt.Errorf("POP3接続エラー: %w", err)
 	}
@@ -534,28 +535,45 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		line, err := reader.ReadString('\n')
 		return strings.TrimRight(line, "\r\n"), err
 	}
-	sendCmd := func(cmd string) (string, error) {
+	sendCmd := func(cmd, displayCmd, errStage string) (string, error) {
+		diag.Add("C->S", displayCmd)
 		if _, err := fmt.Fprintf(conn, "%s\r\n", cmd); err != nil {
+			diag.Add("ERROR", fmt.Sprintf("Socket write error: %v", err))
+			diag.SetFailure(errStage, err)
 			return "", err
 		}
 		resp, err := readLine()
 		if err != nil {
+			diag.Add("ERROR", fmt.Sprintf("Socket read error: %v", err))
+			diag.SetFailure(errStage, err)
 			return "", err
 		}
+		diag.Add("S->C", resp)
 		if !strings.HasPrefix(resp, "+OK") {
-			return resp, fmt.Errorf("POP3応答エラー: %s", resp)
+			cmdErr := fmt.Errorf("POP3応答エラー: %s", resp)
+			diag.Add("ERROR", cmdErr.Error())
+			diag.SetFailure(errStage, cmdErr)
+			return resp, cmdErr
 		}
 		return resp, nil
 	}
 
 	// Read greeting
-	if greet, err := readLine(); err != nil || !strings.HasPrefix(greet, "+OK") {
-		return 0, fmt.Errorf("POP3グリーティング失敗: %v %s", err, greet)
+	greet, err := readLine()
+	if greet != "" {
+		diag.Add("S->C", greet)
 	}
-	if _, err := sendCmd("USER " + acc.Username); err != nil {
+	if err != nil || !strings.HasPrefix(greet, "+OK") {
+		gErr := fmt.Errorf("POP3グリーティング失敗: %v %s", err, greet)
+		diag.Add("ERROR", gErr.Error())
+		diag.SetFailure("greeting", gErr)
+		return 0, gErr
+	}
+	if _, err := sendCmd("USER "+acc.Username, "USER "+acc.Username, "auth"); err != nil {
 		return 0, err
 	}
-	if _, err := sendCmd("PASS " + acc.Password); err != nil {
+	maskedPass := fmt.Sprintf("PASS ******** (masked, %d chars)", len(acc.Password))
+	if _, err := sendCmd("PASS "+acc.Password, maskedPass, "auth"); err != nil {
 		return 0, err
 	}
 
@@ -565,7 +583,7 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		uidl string
 	}
 	var refs []msgRef
-	if _, err := sendCmd("UIDL"); err == nil {
+	if _, err := sendCmd("UIDL", "UIDL", "command"); err == nil {
 		for {
 			line, err := readLine()
 			if err != nil || line == "." {
@@ -577,9 +595,10 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 				refs = append(refs, msgRef{num: n, uidl: "pop3:" + acc.EmailAddress + ":" + parts[1]})
 			}
 		}
+		diag.Add("INFO", fmt.Sprintf("UIDL returned %d message(s)", len(refs)))
 	} else {
 		// Fallback to LIST
-		if _, err := sendCmd("LIST"); err == nil {
+		if _, err := sendCmd("LIST", "LIST", "command"); err == nil {
 			for {
 				line, err := readLine()
 				if err != nil || line == "." {
@@ -591,6 +610,7 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 					refs = append(refs, msgRef{num: n, uidl: fmt.Sprintf("pop3:%s:seq-%d", acc.EmailAddress, n)})
 				}
 			}
+			diag.Add("INFO", fmt.Sprintf("LIST returned %d message(s)", len(refs)))
 		}
 	}
 
@@ -604,7 +624,7 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		if store.ExistsByUIDLOrMessageID(ref.uidl, "") {
 			continue
 		}
-		if _, err := sendCmd(fmt.Sprintf("RETR %d", ref.num)); err != nil {
+		if _, err := sendCmd(fmt.Sprintf("RETR %d", ref.num), fmt.Sprintf("RETR %d", ref.num), "command"); err != nil {
 			continue
 		}
 		var rawBuf bytes.Buffer
@@ -623,12 +643,12 @@ func fetchPOP3(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		}
 	}
 
-	_, _ = sendCmd("QUIT")
+	_, _ = sendCmd("QUIT", "QUIT", "command")
 	return fetched, nil
 }
 
-func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, error) {
-	conn, err := dialMailServer(acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS)
+func fetchIMAPWithDiag(acc *db.Account, store *db.Store, engine *classifier.Engine, diag *NetworkDiagReport) (int, error) {
+	conn, err := dialMailServerWithDiag(acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS, diag)
 	if err != nil {
 		return 0, fmt.Errorf("IMAP接続エラー: %w", err)
 	}
@@ -637,27 +657,44 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 
 	reader := bufio.NewReader(conn)
 	// Read greeting
-	if _, err := reader.ReadString('\n'); err != nil {
-		return 0, err
+	greet, err := reader.ReadString('\n')
+	greet = strings.TrimRight(greet, "\r\n")
+	if greet != "" {
+		diag.Add("S->C", greet)
+	}
+	if err != nil || !strings.HasPrefix(greet, "* OK") {
+		gErr := fmt.Errorf("IMAPグリーティング失敗: %v %s", err, greet)
+		diag.Add("ERROR", gErr.Error())
+		diag.SetFailure("greeting", gErr)
+		return 0, gErr
 	}
 
 	tagNum := 1
-	execIMAP := func(cmd string) ([]string, error) {
+	execIMAP := func(cmd, displayCmd, errStage string) ([]string, error) {
 		tag := fmt.Sprintf("A%03d", tagNum)
 		tagNum++
+		diag.Add("C->S", fmt.Sprintf("%s %s", tag, displayCmd))
 		if _, err := fmt.Fprintf(conn, "%s %s\r\n", tag, cmd); err != nil {
+			diag.Add("ERROR", fmt.Sprintf("Socket write error: %v", err))
+			diag.SetFailure(errStage, err)
 			return nil, err
 		}
 		var lines []string
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
+				diag.Add("ERROR", fmt.Sprintf("Socket read error: %v", err))
+				diag.SetFailure(errStage, err)
 				return lines, err
 			}
 			trimmed := strings.TrimRight(line, "\r\n")
+			diag.Add("S->C", trimmed)
 			if strings.HasPrefix(trimmed, tag+" ") {
 				if !strings.HasPrefix(trimmed, tag+" OK") {
-					return lines, fmt.Errorf("IMAP応答エラー: %s", trimmed)
+					cmdErr := fmt.Errorf("IMAP応答エラー: %s", trimmed)
+					diag.Add("ERROR", cmdErr.Error())
+					diag.SetFailure(errStage, cmdErr)
+					return lines, cmdErr
 				}
 				break
 			}
@@ -666,10 +703,12 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		return lines, nil
 	}
 
-	if _, err := execIMAP(fmt.Sprintf(`LOGIN "%s" "%s"`, acc.Username, acc.Password)); err != nil {
+	rawLoginCmd := fmt.Sprintf(`LOGIN "%s" "%s"`, acc.Username, acc.Password)
+	maskedLoginCmd := fmt.Sprintf(`LOGIN "%s" "********" (masked, %d chars)`, acc.Username, len(acc.Password))
+	if _, err := execIMAP(rawLoginCmd, maskedLoginCmd, "auth"); err != nil {
 		return 0, err
 	}
-	selLines, err := execIMAP("SELECT INBOX")
+	selLines, err := execIMAP("SELECT INBOX", "SELECT INBOX", "command")
 	if err != nil {
 		return 0, err
 	}
@@ -684,7 +723,7 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		}
 	}
 	if existsCount == 0 {
-		_, _ = execIMAP("LOGOUT")
+		_, _ = execIMAP("LOGOUT", "LOGOUT", "command")
 		return 0, nil
 	}
 
@@ -698,7 +737,9 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		uidl := fmt.Sprintf("imap:%s:seq-%d", acc.EmailAddress, seq)
 		tag := fmt.Sprintf("A%03d", tagNum)
 		tagNum++
-		_, _ = fmt.Fprintf(conn, "%s FETCH %d (BODY.PEEK[])\r\n", tag, seq)
+		fetchCmd := fmt.Sprintf("%s FETCH %d (BODY.PEEK[])", tag, seq)
+		diag.Add("C->S", fetchCmd)
+		_, _ = fmt.Fprintf(conn, "%s\r\n", fetchCmd)
 
 		var rawBuf bytes.Buffer
 		inBody := false
@@ -709,6 +750,7 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 			}
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, tag+" ") {
+				diag.Add("S->C", trimmed)
 				break
 			}
 			if !inBody && strings.Contains(trimmed, "BODY[]") {
@@ -727,7 +769,7 @@ func fetchIMAP(acc *db.Account, store *db.Store, engine *classifier.Engine) (int
 		}
 	}
 
-	_, _ = execIMAP("LOGOUT")
+	_, _ = execIMAP("LOGOUT", "LOGOUT", "command")
 	return fetched, nil
 }
 
@@ -783,6 +825,12 @@ func ingestRawEmail(raw []byte, uidl string, store *db.Store, engine *classifier
 
 // SendEmail sends via SMTP if an account with SMTP host is provided, and always stores a copy in "sent" folder.
 func SendEmail(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, attachments []db.Attachment, store *db.Store) (*db.Email, string, error) {
+	em, st, _, err := SendEmailWithDiag(acc, toAddr, ccAddr, bccAddr, subject, body, attachments, store)
+	return em, st, err
+}
+
+// SendEmailWithDiag sends via SMTP while recording a detailed NetworkDiagReport.
+func SendEmailWithDiag(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, attachments []db.Attachment, store *db.Store) (*db.Email, string, *NetworkDiagReport, error) {
 	fromAddr := "me@local.popfile"
 	fromName := "Local User"
 	if acc != nil && acc.EmailAddress != "" {
@@ -861,11 +909,7 @@ func SendEmail(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, a
 
 	smtpStatus := "ローカル送信箱に保存しました（オフライン送信モード）"
 	if acc != nil && strings.TrimSpace(acc.SMTPHost) != "" {
-		addr := net.JoinHostPort(acc.SMTPHost, strconv.Itoa(acc.SMTPPort))
-		var auth smtp.Auth
-		if acc.Username != "" {
-			auth = smtp.PlainAuth("", acc.Username, acc.Password, acc.SMTPHost)
-		}
+		diag := NewNetworkDiagReport(acc.ID, acc.Name, "send", "SMTP", acc.SMTPHost, acc.SMTPPort, acc.SMTPTLS, acc.Username)
 		var rcpts []string
 		for _, r := range []string{toAddr, ccAddr, bccAddr} {
 			for _, part := range strings.Split(r, ",") {
@@ -875,8 +919,8 @@ func SendEmail(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, a
 				}
 			}
 		}
-		if err := smtp.SendMail(addr, auth, fromAddr, rcpts, mimePayload.Bytes()); err != nil {
-			return nil, "", fmt.Errorf("SMTP送信エラー: %w", err)
+		if err := sendSMTPWithDiag(acc, fromAddr, rcpts, mimePayload.Bytes(), diag); err != nil {
+			return nil, "", diag, fmt.Errorf("SMTP送信エラー: %w", err)
 		}
 		smtpStatus = fmt.Sprintf("SMTPサーバー (%s) 経由で送信完了しました", acc.SMTPHost)
 	}
@@ -908,13 +952,13 @@ func SendEmail(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, a
 	}
 	id, err := store.InsertEmail(em)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	full, _ := store.GetEmail(id)
 	if full != nil {
-		return full, smtpStatus, nil
+		return full, smtpStatus, nil, nil
 	}
-	return em, smtpStatus, nil
+	return em, smtpStatus, nil, nil
 }
 
 // RepairStoredEmails scans existing emails and history logs in the database, decoding any

@@ -292,9 +292,16 @@ func (s *Server) handleSendEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	em, statusMsg, err := mail.SendEmail(selectedAcc, req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.Attachments, s.Store)
+	em, statusMsg, diag, err := mail.SendEmailWithDiag(selectedAcc, req.To, req.Cc, req.Bcc, req.Subject, req.Body, req.Attachments, s.Store)
 	if err != nil {
-		writeError(w, 500, err.Error())
+		var netLogs []*mail.NetworkDiagReport
+		if diag != nil {
+			netLogs = append(netLogs, diag)
+		}
+		writeJSON(w, 500, map[string]any{
+			"error":    err.Error(),
+			"net_logs": netLogs,
+		})
 		return
 	}
 	writeJSON(w, 200, map[string]any{
@@ -701,6 +708,7 @@ func (s *Server) handleFetchAccount(w http.ResponseWriter, r *http.Request) {
 
 	totalFetched := 0
 	var errors []string
+	var netLogs []*mail.NetworkDiagReport
 	for _, a := range accs {
 		if req.ID > 0 && a.ID != req.ID {
 			continue
@@ -708,15 +716,19 @@ func (s *Server) handleFetchAccount(w http.ResponseWriter, r *http.Request) {
 		if !a.Enabled && req.ID == 0 {
 			continue
 		}
-		n, err := mail.FetchAccount(&a, s.Store, s.Engine)
+		n, diag, err := mail.FetchAccountWithDiag(&a, s.Store, s.Engine)
 		totalFetched += n
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", a.Name, err))
+			if diag != nil {
+				netLogs = append(netLogs, diag)
+			}
 		}
 	}
 
 	writeJSON(w, 200, map[string]any{
-		"fetched": totalFetched,
-		"errors":  errors,
+		"fetched":  totalFetched,
+		"errors":   errors,
+		"net_logs": netLogs,
 	})
 }

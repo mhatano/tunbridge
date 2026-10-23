@@ -152,6 +152,7 @@ const state = {
   showAllOtherHeaders: false,
   fontSettings: loadSavedFontSettings(),
   undoStack: [], // stack of delete operations for safe Undo
+  lastFailedNetLogs: [], // NetworkDiagReport[] populated ONLY when a send/receive fails
 };
 
 function applyFontSettings() {
@@ -379,7 +380,13 @@ async function apiPost(url, body) {
     body: JSON.stringify(body || {}),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'API Error');
+  if (!res.ok) {
+    const err = new Error(data.error || 'API Error');
+    if (Array.isArray(data.net_logs)) {
+      err.netLogs = data.net_logs;
+    }
+    throw err;
+  }
   return data;
 }
 
@@ -2338,6 +2345,7 @@ async function sendComposedEmail() {
       attachments: composeAttachments,
     });
     composeAttachments = [];
+    clearFailedNetLogs();
     closeModal('composeModal');
     showToast(res.message || '送信しました', '#10b981');
     await refreshOverview();
@@ -2345,7 +2353,12 @@ async function sendComposedEmail() {
       await loadEmails();
     }
   } catch (e) {
-    showToast(e.message, '#ef4444');
+    if (e.netLogs && e.netLogs.length > 0) {
+      recordFailedNetLogs(e.netLogs);
+      showToast(e.message, '#ef4444', t('netlog_btn_view'), () => openNetLogModal(), 9000);
+    } else {
+      showToast(e.message, '#ef4444');
+    }
   }
 }
 
@@ -2933,12 +2946,209 @@ async function fetchSingleAccount(id, ev) {
   try {
     const res = await apiPost('/api/accounts/fetch', { id });
     if (res.errors && res.errors.length > 0) {
-      showToast(res.errors.join(' / '), '#ef4444');
+      if (Array.isArray(res.net_logs) && res.net_logs.length > 0) {
+        recordFailedNetLogs(res.net_logs);
+        showToast(res.errors.join(' / '), '#ef4444', t('netlog_btn_view'), () => openNetLogModal(), 9000);
+      } else {
+        showToast(res.errors.join(' / '), '#ef4444');
+      }
     } else {
+      clearFailedNetLogs();
       showToast(isEn ? `Fetched and classified ${res.fetched} new message(s)` : `${res.fetched} 通の新着メールを受信・POPFile自動分類しました`, '#10b981');
     }
     await refreshOverview();
     await loadEmails();
+  } catch (e) {
+    showToast(e.message, '#ef4444');
+  }
+}
+
+function updateFailedNetLogsIndicator() {
+  const hasLogs = Array.isArray(state.lastFailedNetLogs) && state.lastFailedNetLogs.length > 0;
+  const topBtn = document.getElementById('btnTopNetErrorLog');
+  if (topBtn) {
+    topBtn.style.display = hasLogs ? 'inline-flex' : 'none';
+  }
+  const banner = document.getElementById('accountsNetErrorBanner');
+  if (banner) {
+    banner.style.display = hasLogs ? 'block' : 'none';
+  }
+}
+
+function recordFailedNetLogs(logs) {
+  state.lastFailedNetLogs = Array.isArray(logs) ? logs : [];
+  updateFailedNetLogsIndicator();
+  if (state.lastFailedNetLogs.length > 0) {
+    openNetLogModal();
+  }
+}
+
+function clearFailedNetLogs() {
+  state.lastFailedNetLogs = [];
+  updateFailedNetLogsIndicator();
+  closeModal('netLogModal');
+}
+
+function getStageBadgeInfo(stage) {
+  switch (stage) {
+    case 'dns':
+      return { text: t('netlog_stage_dns'), color: '#a855f7', bg: 'rgba(168, 85, 247, 0.16)' };
+    case 'tcp_connect':
+      return { text: t('netlog_stage_tcp'), color: '#ef4444', bg: 'rgba(239, 68, 68, 0.16)' };
+    case 'tls_handshake':
+      return { text: t('netlog_stage_tls'), color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)' };
+    case 'greeting':
+      return { text: t('netlog_stage_greeting'), color: '#f97316', bg: 'rgba(249, 115, 22, 0.16)' };
+    case 'auth':
+      return { text: t('netlog_stage_auth'), color: '#ec4899', bg: 'rgba(236, 72, 153, 0.16)' };
+    default:
+      return { text: t('netlog_stage_command'), color: '#ef4444', bg: 'rgba(239, 68, 68, 0.16)' };
+  }
+}
+
+function getTagStyle(tag) {
+  switch (tag) {
+    case 'DNS':
+      return 'background:rgba(168,85,247,0.2);color:#c084fc;border:1px solid rgba(168,85,247,0.4);';
+    case 'TCP':
+      return 'background:rgba(16,185,129,0.2);color:#34d399;border:1px solid rgba(16,185,129,0.4);';
+    case 'TLS':
+      return 'background:rgba(6,182,212,0.2);color:#22d3ee;border:1px solid rgba(6,182,212,0.4);';
+    case 'C->S':
+      return 'background:rgba(59,130,246,0.2);color:#60a5fa;border:1px solid rgba(59,130,246,0.4);';
+    case 'S->C':
+      return 'background:rgba(245,158,11,0.2);color:#fbbf24;border:1px solid rgba(245,158,11,0.4);';
+    case 'ERROR':
+      return 'background:rgba(239,68,68,0.25);color:#fca5a5;border:1px solid rgba(239,68,68,0.55);font-weight:700;';
+    default:
+      return 'background:rgba(148,163,184,0.2);color:#94a3b8;border:1px solid rgba(148,163,184,0.4);';
+  }
+}
+
+function openNetLogModal() {
+  const logs = state.lastFailedNetLogs || [];
+  if (logs.length === 0) return;
+
+  const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+  const bodyEl = document.getElementById('netLogModalBody');
+  if (!bodyEl) return;
+
+  bodyEl.innerHTML = logs
+    .map((rep) => {
+      const stageBadge = getStageBadgeInfo(rep.error_stage);
+      const socketPill = rep.socket_connected
+        ? `<span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(16,185,129,0.16);color:#10b981;border:1px solid rgba(16,185,129,0.4);">
+             ${escapeHTML(t('netlog_socket_connected', { local: rep.local_addr || 'local', remote: rep.remote_addr || `${rep.host}:${rep.port}` }))}
+           </span>`
+        : `<span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(239,68,68,0.16);color:#ef4444;border:1px solid rgba(239,68,68,0.4);">
+             ${escapeHTML(t('netlog_socket_disconnected'))}
+           </span>`;
+
+      let tlsPill = '';
+      if (rep.use_tls) {
+        tlsPill = rep.tls_completed
+          ? `<span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(6,182,212,0.16);color:#06b6d4;border:1px solid rgba(6,182,212,0.4);">
+               ${escapeHTML(t('netlog_tls_ok', { info: rep.tls_info || 'TLS' }))}
+             </span>`
+          : `<span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(245,158,11,0.16);color:#f59e0b;border:1px solid rgba(245,158,11,0.4);">
+               ${escapeHTML(t('netlog_tls_fail'))}
+             </span>`;
+      } else {
+        tlsPill = `<span style="padding:3px 10px;border-radius:999px;font-size:12px;background:rgba(148,163,184,0.15);color:var(--text-muted);border:1px solid var(--border);">
+                     ${escapeHTML(t('netlog_tls_plain'))}
+                   </span>`;
+      }
+
+      const diagText = isEn ? rep.diagnosis_en || rep.diagnosis_ja : rep.diagnosis_ja || rep.diagnosis_en;
+      const linesHTML = (rep.lines || [])
+        .map((ln) => {
+          const isErr = ln.tag === 'ERROR';
+          return `
+            <div style="display:flex;align-items:baseline;gap:8px;padding:3px 6px;border-radius:4px;${isErr ? 'background:rgba(239,68,68,0.12);' : ''}">
+              <span style="color:#64748b;font-size:11px;flex-shrink:0;user-select:none;">${escapeHTML(ln.time)}</span>
+              <span style="font-size:10.5px;padding:1px 6px;border-radius:4px;min-width:48px;text-align:center;flex-shrink:0;${getTagStyle(ln.tag)}">${escapeHTML(ln.tag)}</span>
+              <span style="word-break:break-all;color:${isErr ? '#fca5a5' : '#e2e8f0'};">${escapeHTML(ln.text)}</span>
+            </div>
+          `;
+        })
+        .join('');
+
+      const editBtnHTML =
+        rep.account_id > 0
+          ? `<button class="btn-secondary" onclick="jumpToEditAccountFromNetLog(${rep.account_id})">${escapeHTML(t('netlog_edit_account_btn'))}</button>`
+          : '';
+
+      return `
+        <div class="card" style="padding:14px;border-color:var(--border);display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-weight:700;font-size:14.5px;">${escapeHTML(rep.account_name || 'Mail Account')}</span>
+              <span style="font-family:Consolas,monospace;font-size:12.5px;padding:2px 8px;border-radius:6px;background:var(--bg-app);border:1px solid var(--border);">
+                ${escapeHTML(rep.protocol)} — ${escapeHTML(rep.host)}:${rep.port} (user: ${escapeHTML(rep.username || '-')})
+              </span>
+            </div>
+            ${editBtnHTML}
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            ${socketPill}
+            ${tlsPill}
+            <span style="padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;background:${stageBadge.bg};color:${stageBadge.color};border:1px solid ${stageBadge.color};">
+              ${escapeHTML(stageBadge.text)}
+            </span>
+          </div>
+
+          <div style="background:rgba(239,68,68,0.09);border-left:4px solid var(--danger);padding:10px 14px;border-radius:6px;line-height:1.6;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${escapeHTML(diagText)}</div>
+            <div style="font-family:Consolas,monospace;font-size:12px;color:var(--text-muted);word-break:break-all;">
+              Raw Error: ${escapeHTML(rep.error_message || '')}
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px;">
+              ${escapeHTML(t('netlog_transcript_title'))}
+            </div>
+            <div style="background:#090e1a;color:#e2e8f0;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
+              ${linesHTML}
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  document.getElementById('netLogModal').classList.add('open');
+}
+
+function jumpToEditAccountFromNetLog(accId) {
+  closeModal('netLogModal');
+  closeModal('composeModal');
+  switchMainView('accounts');
+  setTimeout(() => {
+    editAccount(accId);
+  }, 50);
+}
+
+async function copyNetLogToClipboard() {
+  const logs = state.lastFailedNetLogs || [];
+  if (logs.length === 0) return;
+  const textBlocks = logs.map((rep) => {
+    const header = [
+      `=== [${rep.protocol}] ${rep.account_name} (${rep.host}:${rep.port}, TLS=${rep.use_tls}, user=${rep.username}) ===`,
+      `Socket Connected: ${rep.socket_connected} (Local=${rep.local_addr || '-'} -> Remote=${rep.remote_addr || '-'})`,
+      `TLS Completed: ${rep.tls_completed} (${rep.tls_info || '-'})`,
+      `Error Stage: ${rep.error_stage}`,
+      `Diagnosis: ${rep.diagnosis_ja}`,
+      `Raw Error: ${rep.error_message}`,
+      `--- Trace Log ---`,
+    ];
+    const lines = (rep.lines || []).map((ln) => `${ln.time} [${ln.tag}] ${ln.text}`);
+    return [...header, ...lines].join('\n');
+  });
+  try {
+    await navigator.clipboard.writeText(textBlocks.join('\n\n'));
+    showToast(t('netlog_copied_toast'), '#10b981');
   } catch (e) {
     showToast(e.message, '#ef4444');
   }
