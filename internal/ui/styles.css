@@ -1756,4 +1756,22 @@ body {
   color: #1e293b !important;
 }
 
+.account-row-clickable {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.account-row-clickable:hover td {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
+
+.account-row-editing td {
+  background: rgba(59, 130, 246, 0.16) !important;
+}
+
+.account-row-editing td:first-child {
+  border-left: 3px solid var(--accent);
+}
+
+
 

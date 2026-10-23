@@ -222,4 +222,97 @@ func TestServerAPIEndToEnd(t *testing.T) {
 	if impRes.Email.Attachments[0].Filename != "仕様書_v1.txt" {
 		t.Errorf("Expected imported attachment filename '仕様書_v1.txt', got %q", impRes.Email.Attachments[0].Filename)
 	}
+
+	// 11. Test Account Create, Update (Overwrite), and Duplicate via /api/accounts/save
+	accCreatePayload, _ := json.Marshal(db.Account{
+		ID:           0,
+		Name:         "Main POP3 Account",
+		EmailAddress: "user1@example.com",
+		Protocol:     "pop3",
+		IncomingHost: "pop.example.com",
+		IncomingPort: 995,
+		IncomingTLS:  true,
+		Username:     "user1@example.com",
+		Password:     "secret1",
+		SMTPHost:     "smtp.example.com",
+		SMTPPort:     587,
+		SMTPTLS:      true,
+		Enabled:      true,
+	})
+	accCreateResp, err := http.Post(ts.URL+"/api/accounts/save", "application/json", bytes.NewReader(accCreatePayload))
+	if err != nil || accCreateResp.StatusCode != 200 {
+		t.Fatalf("POST /api/accounts/save (create) failed: %v", err)
+	}
+	var accCreateRes struct {
+		Account db.Account `json:"account"`
+	}
+	_ = json.NewDecoder(accCreateResp.Body).Decode(&accCreateRes)
+	accCreateResp.Body.Close()
+	if accCreateRes.Account.ID <= 0 {
+		t.Fatalf("Expected created account ID > 0, got %d", accCreateRes.Account.ID)
+	}
+
+	// Overwrite existing account by passing its ID
+	accUpdatePayload, _ := json.Marshal(db.Account{
+		ID:           accCreateRes.Account.ID,
+		Name:         "Main POP3 Account (Updated)",
+		EmailAddress: "user1-updated@example.com",
+		Protocol:     "pop3",
+		IncomingHost: "pop.example.com",
+		IncomingPort: 995,
+		IncomingTLS:  true,
+		Username:     "user1-updated@example.com",
+		Password:     "secret1-new",
+		SMTPHost:     "smtp.example.com",
+		SMTPPort:     587,
+		SMTPTLS:      true,
+		Enabled:      true,
+	})
+	accUpdateResp, err := http.Post(ts.URL+"/api/accounts/save", "application/json", bytes.NewReader(accUpdatePayload))
+	if err != nil || accUpdateResp.StatusCode != 200 {
+		t.Fatalf("POST /api/accounts/save (update) failed: %v", err)
+	}
+	accUpdateResp.Body.Close()
+
+	// Duplicate account as disabled backup (ID = 0)
+	accDupPayload, _ := json.Marshal(db.Account{
+		ID:           0,
+		Name:         "Main POP3 Account (Updated) (コピー)",
+		EmailAddress: "user1-updated@example.com",
+		Protocol:     "pop3",
+		IncomingHost: "pop.example.com",
+		IncomingPort: 995,
+		IncomingTLS:  true,
+		Username:     "user1-updated@example.com",
+		Password:     "secret1-new",
+		SMTPHost:     "smtp.example.com",
+		SMTPPort:     587,
+		SMTPTLS:      true,
+		Enabled:      false,
+	})
+	accDupResp, err := http.Post(ts.URL+"/api/accounts/save", "application/json", bytes.NewReader(accDupPayload))
+	if err != nil || accDupResp.StatusCode != 200 {
+		t.Fatalf("POST /api/accounts/save (duplicate) failed: %v", err)
+	}
+	accDupResp.Body.Close()
+
+	// Verify 2 accounts exist (1 updated, 1 duplicated & disabled)
+	accListResp, err := http.Get(ts.URL + "/api/accounts")
+	if err != nil || accListResp.StatusCode != 200 {
+		t.Fatalf("GET /api/accounts failed: %v", err)
+	}
+	var accListRes struct {
+		Accounts []db.Account `json:"accounts"`
+	}
+	_ = json.NewDecoder(accListResp.Body).Decode(&accListRes)
+	accListResp.Body.Close()
+	if len(accListRes.Accounts) != 2 {
+		t.Fatalf("Expected 2 accounts after update + duplicate, got %d", len(accListRes.Accounts))
+	}
+	if accListRes.Accounts[0].Name != "Main POP3 Account (Updated)" || !accListRes.Accounts[0].Enabled {
+		t.Errorf("Unexpected first account state: %+v", accListRes.Accounts[0])
+	}
+	if accListRes.Accounts[1].Name != "Main POP3 Account (Updated) (コピー)" || accListRes.Accounts[1].Enabled {
+		t.Errorf("Unexpected duplicated account state: %+v", accListRes.Accounts[1])
+	}
 }

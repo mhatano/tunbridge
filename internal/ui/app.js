@@ -2698,40 +2698,184 @@ function onProtocolChange() {
   }
 }
 
+function updateAccountEditorModeUI() {
+  const idEl = document.getElementById('accId');
+  const editingId = idEl ? Number(idEl.value) || 0 : 0;
+  const badgeEl = document.getElementById('accountFormModeBadge');
+  const resetBtn = document.getElementById('btnResetAccountForm');
+  const saveBtn = document.getElementById('btnSaveAccount');
+  const copyBtn = document.getElementById('btnSaveAccountAsCopy');
+  const cardEl = document.getElementById('accountEditorCard');
+
+  if (editingId > 0) {
+    if (badgeEl) {
+      badgeEl.style.display = 'inline-block';
+      badgeEl.textContent = t('accounts_editing_badge', { id: editingId });
+    }
+    if (resetBtn) resetBtn.style.display = 'inline-flex';
+    if (copyBtn) copyBtn.style.display = 'inline-flex';
+    if (saveBtn) saveBtn.textContent = t('accounts_btn_save_overwrite');
+    if (cardEl) {
+      cardEl.style.borderColor = 'var(--accent)';
+      cardEl.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.2)';
+    }
+  } else {
+    if (badgeEl) badgeEl.style.display = 'none';
+    if (resetBtn) resetBtn.style.display = 'none';
+    if (copyBtn) copyBtn.style.display = 'none';
+    if (saveBtn) saveBtn.textContent = t('accounts_btn_save_new');
+    if (cardEl) {
+      cardEl.style.borderColor = '';
+      cardEl.style.boxShadow = '';
+    }
+  }
+
+  // Highlight active row in table
+  const tbody = document.getElementById('accountsTableBody');
+  if (tbody) {
+    tbody.querySelectorAll('tr[data-acc-id]').forEach((tr) => {
+      const rowId = Number(tr.getAttribute('data-acc-id')) || 0;
+      if (editingId > 0 && rowId === editingId) {
+        tr.classList.add('account-row-editing');
+      } else {
+        tr.classList.remove('account-row-editing');
+      }
+    });
+  }
+}
+
+function editAccount(id, silent = false) {
+  const acc = state.accounts.find((a) => Number(a.id) === Number(id));
+  if (!acc) return;
+
+  document.getElementById('accId').value = String(acc.id);
+  document.getElementById('accName').value = acc.name || '';
+  document.getElementById('accEmail').value = acc.email_address || '';
+  document.getElementById('accProtocol').value = acc.protocol || 'pop3';
+  document.getElementById('accInHost').value = acc.incoming_host || '';
+  document.getElementById('accInPort').value = acc.incoming_port || (acc.protocol === 'imap' ? 993 : 995);
+  document.getElementById('accInTLS').value = acc.incoming_tls ? '1' : '0';
+  document.getElementById('accUser').value = acc.username || '';
+  document.getElementById('accPass').value = acc.password || '';
+  document.getElementById('accSmtpHost').value = acc.smtp_host || '';
+  document.getElementById('accSmtpPort').value = acc.smtp_port || 587;
+  document.getElementById('accEnabled').value = acc.enabled ? '1' : '0';
+
+  updateAccountEditorModeUI();
+  const cardEl = document.getElementById('accountEditorCard');
+  if (cardEl && typeof cardEl.scrollIntoView === 'function') {
+    cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (!silent) {
+    showToast(t('accounts_toast_loaded', { name: acc.name }), '#3b82f6');
+  }
+}
+
+function resetAccountForm() {
+  const idEl = document.getElementById('accId');
+  if (!idEl) return;
+  idEl.value = '0';
+  document.getElementById('accName').value = '';
+  document.getElementById('accEmail').value = '';
+  document.getElementById('accProtocol').value = 'pop3';
+  document.getElementById('accInHost').value = '';
+  document.getElementById('accInPort').value = '995';
+  document.getElementById('accInTLS').value = '1';
+  document.getElementById('accUser').value = '';
+  document.getElementById('accPass').value = '';
+  document.getElementById('accSmtpHost').value = '';
+  document.getElementById('accSmtpPort').value = '587';
+  document.getElementById('accEnabled').value = '1';
+  updateAccountEditorModeUI();
+}
+
+async function duplicateAccount(id, ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const src = state.accounts.find((a) => Number(a.id) === Number(id));
+  if (!src) return;
+
+  const copySuffix = t('accounts_copy_suffix');
+  const dupAcc = {
+    id: 0,
+    name: `${src.name}${copySuffix}`,
+    email_address: src.email_address,
+    protocol: src.protocol,
+    incoming_host: src.incoming_host,
+    incoming_port: Number(src.incoming_port) || 995,
+    incoming_tls: Boolean(src.incoming_tls),
+    username: src.username,
+    password: src.password,
+    smtp_host: src.smtp_host || '',
+    smtp_port: Number(src.smtp_port) || 587,
+    smtp_tls: src.smtp_tls !== undefined ? Boolean(src.smtp_tls) : true,
+    enabled: false, // Default duplicated entry to disabled so it's safe as a backup or template for editing
+  };
+
+  try {
+    const res = await apiPost('/api/accounts/save', dupAcc);
+    await loadAccountsList();
+    renderProviderFilterUI();
+    if (res && res.account && res.account.id) {
+      editAccount(res.account.id, true);
+    }
+    showToast(t('accounts_toast_duplicated', { name: dupAcc.name }), '#10b981');
+  } catch (e) {
+    showToast(e.message, '#ef4444');
+  }
+}
+
 async function loadAccountsList() {
   try {
     const data = await apiGet('/api/accounts');
     state.accounts = data.accounts || [];
     const tbody = document.getElementById('accountsTableBody');
     if (!tbody) return;
+    const editingId = Number(document.getElementById('accId')?.value) || 0;
+
     tbody.innerHTML =
       state.accounts
-        .map(
-          (a) => `
-        <tr>
+        .map((a) => {
+          const isEditing = editingId > 0 && Number(a.id) === editingId;
+          const statusHTML = a.enabled
+            ? `<span style="color:#10b981;font-weight:700;font-size:12px;">${t('accounts_status_enabled')}</span>`
+            : `<span style="color:var(--text-muted);font-size:12px;">${t('accounts_status_disabled')}</span>`;
+          return `
+        <tr class="account-row-clickable ${isEditing ? 'account-row-editing' : ''}" data-acc-id="${a.id}" onclick="editAccount(${a.id})" style="${!a.enabled ? 'opacity:0.75;' : ''}">
+          <td>${statusHTML}</td>
           <td><strong>${escapeHTML(a.name)}</strong></td>
           <td>${escapeHTML(a.email_address)}</td>
           <td>${escapeHTML(a.protocol.toUpperCase())} (${a.incoming_tls ? 'TLS' : 'Plain'})</td>
           <td>${escapeHTML(a.incoming_host)}:${a.incoming_port}</td>
           <td>${a.smtp_host ? `${escapeHTML(a.smtp_host)}:${a.smtp_port}` : t('accounts_local_save')}</td>
-          <td style="display:flex;gap:6px;">
-            <button class="btn-primary" onclick="fetchSingleAccount(${a.id})">${t('accounts_fetch_btn')}</button>
-            <button class="btn-danger" onclick="deleteAccount(${a.id})">${t('accounts_delete_btn')}</button>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+            <button class="btn-secondary" onclick="editAccount(${a.id})">${t('accounts_edit_btn')}</button>
+            <button class="btn-secondary" onclick="duplicateAccount(${a.id}, event)">${t('accounts_duplicate_btn')}</button>
+            <button class="btn-primary" onclick="fetchSingleAccount(${a.id}, event)">${t('accounts_fetch_btn')}</button>
+            <button class="btn-danger" onclick="deleteAccount(${a.id}, event)">${t('accounts_delete_btn')}</button>
           </td>
         </tr>
-      `
-        )
+      `;
+        })
         .join('') ||
-      `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">${t('accounts_empty')}</td></tr>`;
+      `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">${t('accounts_empty')}</td></tr>`;
+    updateAccountEditorModeUI();
   } catch (e) {
     console.error(e);
   }
 }
 
-async function saveAccount() {
+async function saveAccount(asCopy = false) {
+  const origId = Number(document.getElementById('accId').value) || 0;
+  let nameVal = document.getElementById('accName').value.trim();
+  if (asCopy && origId > 0) {
+    const origAcc = state.accounts.find((a) => Number(a.id) === origId);
+    if (origAcc && origAcc.name === nameVal) {
+      nameVal = `${nameVal}${t('accounts_copy_suffix')}`;
+    }
+  }
   const acc = {
-    id: Number(document.getElementById('accId').value) || 0,
-    name: document.getElementById('accName').value.trim(),
+    id: asCopy ? 0 : origId,
+    name: nameVal,
     email_address: document.getElementById('accEmail').value.trim(),
     protocol: document.getElementById('accProtocol').value,
     incoming_host: document.getElementById('accInHost').value.trim(),
@@ -2745,32 +2889,53 @@ async function saveAccount() {
     enabled: document.getElementById('accEnabled').value === '1',
   };
   if (!acc.name || !acc.incoming_host) {
-    showToast('アカウント名と受信サーバーホストを入力してください', '#f59e0b');
+    const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+    showToast(isEn ? 'Please enter Account Name and Incoming Server Host' : 'アカウント名と受信サーバーホストを入力してください', '#f59e0b');
     return;
   }
   try {
-    await apiPost('/api/accounts/save', acc);
-    showToast('メールアカウント設定を保存しました', '#10b981');
-    loadAccountsList();
+    const res = await apiPost('/api/accounts/save', acc);
+    await loadAccountsList();
+    renderProviderFilterUI();
+    if (acc.id > 0) {
+      showToast(t('accounts_toast_updated', { name: acc.name }), '#10b981');
+      editAccount(acc.id, true);
+    } else {
+      showToast(t('accounts_toast_created', { name: acc.name }), '#10b981');
+      if (asCopy && res && res.account && res.account.id) {
+        editAccount(res.account.id, true);
+      } else {
+        resetAccountForm();
+      }
+    }
   } catch (e) {
     showToast(e.message, '#ef4444');
   }
 }
 
-async function deleteAccount(id) {
+async function deleteAccount(id, ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
   await apiPost('/api/accounts/delete', { id });
-  showToast('アカウントを削除しました');
-  loadAccountsList();
+  const currentEditingId = Number(document.getElementById('accId')?.value) || 0;
+  if (currentEditingId === Number(id)) {
+    resetAccountForm();
+  }
+  const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+  showToast(isEn ? 'Account deleted' : 'アカウントを削除しました');
+  await loadAccountsList();
+  renderProviderFilterUI();
 }
 
-async function fetchSingleAccount(id) {
-  showToast('サーバーに接続してメールを受信中...');
+async function fetchSingleAccount(id, ev) {
+  if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+  const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+  showToast(isEn ? 'Connecting to mail server...' : 'サーバーに接続してメールを受信中...');
   try {
     const res = await apiPost('/api/accounts/fetch', { id });
     if (res.errors && res.errors.length > 0) {
       showToast(res.errors.join(' / '), '#ef4444');
     } else {
-      showToast(`${res.fetched} 通の新着メールを受信・POPFile自動分類しました`, '#10b981');
+      showToast(isEn ? `Fetched and classified ${res.fetched} new message(s)` : `${res.fetched} 通の新着メールを受信・POPFile自動分類しました`, '#10b981');
     }
     await refreshOverview();
     await loadEmails();
