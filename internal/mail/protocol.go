@@ -507,13 +507,19 @@ func FetchAccount(acc *db.Account, store *db.Store, engine *classifier.Engine) (
 	return n, err
 }
 
-// FetchAccountWithDiag connects to a POP3 or IMAP server while recording a detailed NetworkDiagReport.
+// FetchAccountWithDiag connects to a POP3, IMAP, or JMAP server while recording a detailed NetworkDiagReport.
 func FetchAccountWithDiag(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, *NetworkDiagReport, error) {
 	protoName := "POP3"
 	if strings.EqualFold(acc.Protocol, "imap") {
 		protoName = "IMAP4"
+	} else if strings.EqualFold(acc.Protocol, "jmap") {
+		protoName = "JMAP"
 	}
 	diag := NewNetworkDiagReport(acc.ID, acc.Name, "receive", protoName, acc.IncomingHost, acc.IncomingPort, acc.IncomingTLS, acc.Username)
+	if strings.EqualFold(acc.Protocol, "jmap") {
+		n, err := fetchJMAPWithDiag(acc, store, engine, diag)
+		return n, diag, err
+	}
 	if strings.EqualFold(acc.Protocol, "imap") {
 		n, err := fetchIMAPWithDiag(acc, store, engine, diag)
 		return n, diag, err

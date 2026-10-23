@@ -2704,10 +2704,20 @@ async function loadHistoryView() {
 function onProtocolChange() {
   const proto = document.getElementById('accProtocol').value;
   const portEl = document.getElementById('accInPort');
-  if (proto === 'imap') {
+  const hostEl = document.getElementById('accInHost');
+  const tlsEl = document.getElementById('accInTLS');
+  if (proto === 'jmap') {
+    portEl.value = 443;
+    if (tlsEl) tlsEl.value = '1';
+    if (hostEl) hostEl.placeholder = 'api.fastmail.com / mail.example.com';
+  } else if (proto === 'imap') {
     portEl.value = 993;
+    if (tlsEl) tlsEl.value = '1';
+    if (hostEl) hostEl.placeholder = 'imap.example.com';
   } else {
     portEl.value = 995;
+    if (tlsEl) tlsEl.value = '1';
+    if (hostEl) hostEl.placeholder = 'pop.example.com';
   }
 }
 
@@ -2766,7 +2776,7 @@ function editAccount(id, silent = false) {
   document.getElementById('accEmail').value = acc.email_address || '';
   document.getElementById('accProtocol').value = acc.protocol || 'pop3';
   document.getElementById('accInHost').value = acc.incoming_host || '';
-  document.getElementById('accInPort').value = acc.incoming_port || (acc.protocol === 'imap' ? 993 : 995);
+  document.getElementById('accInPort').value = acc.incoming_port || (acc.protocol === 'jmap' ? 443 : (acc.protocol === 'imap' ? 993 : 995));
   document.getElementById('accInTLS').value = acc.incoming_tls ? '1' : '0';
   document.getElementById('accUser').value = acc.username || '';
   document.getElementById('accPass').value = acc.password || '';
@@ -2852,12 +2862,14 @@ async function loadAccountsList() {
           const statusHTML = a.enabled
             ? `<span style="color:#10b981;font-weight:700;font-size:12px;">${t('accounts_status_enabled')}</span>`
             : `<span style="color:var(--text-muted);font-size:12px;">${t('accounts_status_disabled')}</span>`;
+          const protoDisplay = (a.protocol || 'pop3').toUpperCase();
+          const tlsLabel = a.protocol === 'jmap' ? (a.incoming_tls ? 'HTTPS' : 'HTTP') : (a.incoming_tls ? 'TLS' : 'Plain');
           return `
         <tr class="account-row-clickable ${isEditing ? 'account-row-editing' : ''}" data-acc-id="${a.id}" onclick="editAccount(${a.id})" style="${!a.enabled ? 'opacity:0.75;' : ''}">
           <td>${statusHTML}</td>
           <td><strong>${escapeHTML(a.name)}</strong></td>
           <td>${escapeHTML(a.email_address)}</td>
-          <td>${escapeHTML(a.protocol.toUpperCase())} (${a.incoming_tls ? 'TLS' : 'Plain'})</td>
+          <td>${escapeHTML(protoDisplay)} (${tlsLabel})</td>
           <td>${escapeHTML(a.incoming_host)}:${a.incoming_port}</td>
           <td>${a.smtp_host ? `${escapeHTML(a.smtp_host)}:${a.smtp_port}` : t('accounts_local_save')}</td>
           <td style="display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">

@@ -22,7 +22,7 @@
     <div class="topbar-actions">
       <button class="btn-secondary" id="btnTopSimulate" onclick="openSimulateModal()" title="サンプル新着メールを生成して自動分類をテスト">⚡ デモ新着メール生成</button>
       <button class="btn-secondary" id="btnTopImport" onclick="openImportModal()" title=".eml 形式メールをインポート">📄 .emlインポート</button>
-      <button class="btn-primary" id="btnTopFetch" onclick="fetchAllAccounts()" title="設定済みのPOP3/IMAPサーバーからメールを受信">📥 送受信 (POP3/IMAP)</button>
+      <button class="btn-primary" id="btnTopFetch" onclick="fetchAllAccounts()" title="設定済みのPOP3/IMAP/JMAPサーバーからメールを受信">📥 送受信 (POP3/IMAP/JMAP)</button>
       <button class="btn-danger" id="btnTopNetErrorLog" style="display:none;font-weight:700;" onclick="openNetLogModal()" title="直前の送受信失敗時のソケット・プロトコル診断ログを表示">⚠️ 通信エラー診断ログ</button>
       <button class="btn-secondary" id="btnTopFontConfig" onclick="openFontConfigModal()" title="表示言語・テーマ・フォントを設定">🌐 言語・フォント設定</button>
       <select id="topbarThemeSelect" class="form-control" style="padding:4px 8px;font-size:12px;height:30px;width:auto;" onchange="setThemePreference(this.value)" title="アプリテーマの切り替え / Switch App Theme">
@@ -106,7 +106,7 @@
           <div class="nav-item-left">🕒 分類・TOE学習履歴ログ</div>
         </div>
         <div class="nav-item" id="navAccounts" onclick="switchMainView('accounts')">
-          <div class="nav-item-left">⚙️ POP3 / IMAP / SMTP 設定</div>
+          <div class="nav-item-left">⚙️ POP3 / IMAP / JMAP / SMTP</div>
         </div>
         <div class="nav-item" id="navHelp" onclick="switchMainView('help')">
           <div class="nav-item-left">❓ 使い方・ヘルプガイド</div>
@@ -358,8 +358,8 @@
       <div class="full-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">⚙️ メールアカウント設定 (POP3 / IMAP4 / SMTP)</div>
-            <div class="panel-subtitle">実際のPOP3またはIMAPサーバーからメールを受信してPOPFileエンジンで自動分類し、SMTPで送信できます。</div>
+            <div class="panel-title">⚙️ メールアカウント設定 (POP3 / IMAP4 / JMAP / SMTP)</div>
+            <div class="panel-subtitle">POP3、IMAP4、または最新のJMAP (RFC 8620/8621) サーバーからメールを受信して自動分類し、SMTPで送信できます。</div>
           </div>
         </div>
 
@@ -425,6 +425,7 @@
               <select id="accProtocol" class="form-control" onchange="onProtocolChange()">
                 <option value="pop3">POP3</option>
                 <option value="imap">IMAP4</option>
+                <option value="jmap">JMAP (RFC 8620/8621)</option>
               </select>
             </div>
           </div>
