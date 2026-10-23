@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tunbridge/internal/db"
 )
 
 type NetLogLine struct {
