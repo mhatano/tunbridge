@@ -324,6 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await refreshOverview();
   updateCurrentListTitle();
   await loadEmails();
+  startBackgroundPoll();
 });
 
 function showToast(msg, color = '#3b82f6', actionLabel = '', actionCallback = null, duration = 4200) {
@@ -413,9 +414,44 @@ async function refreshOverview() {
 
     renderBucketSidebar();
     populateBucketSelects();
+    lastKnownTotalReceived = Number(state.counts.received) || 0;
   } catch (e) {
     console.error(e);
   }
+}
+
+let lastKnownTotalReceived = -1;
+let backgroundPollTimer = null;
+
+function startBackgroundPoll() {
+  if (backgroundPollTimer) clearInterval(backgroundPollTimer);
+  backgroundPollTimer = setInterval(async () => {
+    try {
+      const data = await apiGet('/api/overview');
+      if (!data || !data.counts) return;
+      const currentReceived = Number(data.counts.received) || 0;
+      if (lastKnownTotalReceived >= 0 && currentReceived > lastKnownTotalReceived) {
+        const diff = currentReceived - lastKnownTotalReceived;
+        const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+        showToast(
+          isEn ? `📥 ${diff} new message(s) received` : `📥 新着メールが ${diff} 通届きました`,
+          '#10b981'
+        );
+        lastKnownTotalReceived = currentReceived;
+        await refreshOverview();
+        if (state.currentFolder === 'received' || !state.currentFolder) {
+          await loadEmails();
+        }
+        if (state.currentMainView === 'accounts') {
+          await loadAccountsList();
+        }
+      } else {
+        lastKnownTotalReceived = currentReceived;
+      }
+    } catch (e) {
+      // background poll silently ignores transient errors
+    }
+  }, 15000);
 }
 
 function renderBucketSidebar() {
@@ -2783,6 +2819,8 @@ function editAccount(id, silent = false) {
   document.getElementById('accSmtpHost').value = acc.smtp_host || '';
   document.getElementById('accSmtpPort').value = acc.smtp_port || 587;
   document.getElementById('accEnabled').value = acc.enabled ? '1' : '0';
+  const intervalEl = document.getElementById('accCheckInterval');
+  if (intervalEl) intervalEl.value = String(acc.check_interval ?? 0);
 
   updateAccountEditorModeUI();
   const cardEl = document.getElementById('accountEditorCard');
@@ -2809,6 +2847,8 @@ function resetAccountForm() {
   document.getElementById('accSmtpHost').value = '';
   document.getElementById('accSmtpPort').value = '587';
   document.getElementById('accEnabled').value = '1';
+  const intervalEl = document.getElementById('accCheckInterval');
+  if (intervalEl) intervalEl.value = '0';
   updateAccountEditorModeUI();
 }
 
@@ -2832,6 +2872,7 @@ async function duplicateAccount(id, ev) {
     smtp_port: Number(src.smtp_port) || 587,
     smtp_tls: src.smtp_tls !== undefined ? Boolean(src.smtp_tls) : true,
     enabled: false, // Default duplicated entry to disabled so it's safe as a backup or template for editing
+    check_interval: Number(src.check_interval) || 0,
   };
 
   try {
@@ -2864,6 +2905,28 @@ async function loadAccountsList() {
             : `<span style="color:var(--text-muted);font-size:12px;">${t('accounts_status_disabled')}</span>`;
           const protoDisplay = (a.protocol || 'pop3').toUpperCase();
           const tlsLabel = a.protocol === 'jmap' ? (a.incoming_tls ? 'HTTPS' : 'HTTP') : (a.incoming_tls ? 'TLS' : 'Plain');
+
+          let intervalBadge = '';
+          if (a.check_interval && Number(a.check_interval) > 0) {
+            intervalBadge = `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.14);color:#10b981;border:1px solid rgba(16,185,129,0.35);">
+              ⏱️ ${t('accounts_interval_mins', { min: a.check_interval })}
+            </span>`;
+          } else {
+            intervalBadge = `<span style="font-size:11px;color:var(--text-muted);">${t('accounts_interval_manual')}</span>`;
+          }
+
+          let lastCheckedHTML = '';
+          if (a.last_checked_at) {
+            const isErr = a.last_check_status && a.last_check_status.includes('エラー');
+            const statusColor = isErr ? 'var(--danger)' : 'var(--text-muted)';
+            lastCheckedHTML = `
+              <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">
+                ${escapeHTML(a.last_checked_at)}
+              </div>
+              ${a.last_check_status ? `<div style="font-size:10px;color:${statusColor};line-height:1.2;margin-top:1px;">${escapeHTML(a.last_check_status)}</div>` : ''}
+            `;
+          }
+
           return `
         <tr class="account-row-clickable ${isEditing ? 'account-row-editing' : ''}" data-acc-id="${a.id}" onclick="editAccount(${a.id})" style="${!a.enabled ? 'opacity:0.75;' : ''}">
           <td>${statusHTML}</td>
@@ -2872,6 +2935,7 @@ async function loadAccountsList() {
           <td>${escapeHTML(protoDisplay)} (${tlsLabel})</td>
           <td>${escapeHTML(a.incoming_host)}:${a.incoming_port}</td>
           <td>${a.smtp_host ? `${escapeHTML(a.smtp_host)}:${a.smtp_port}` : t('accounts_local_save')}</td>
+          <td>${intervalBadge}${lastCheckedHTML}</td>
           <td style="display:flex;gap:6px;flex-wrap:wrap;" onclick="event.stopPropagation()">
             <button class="btn-secondary" onclick="editAccount(${a.id})">${t('accounts_edit_btn')}</button>
             <button class="btn-secondary" onclick="duplicateAccount(${a.id}, event)">${t('accounts_duplicate_btn')}</button>
@@ -2882,7 +2946,7 @@ async function loadAccountsList() {
       `;
         })
         .join('') ||
-      `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">${t('accounts_empty')}</td></tr>`;
+      `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">${t('accounts_empty')}</td></tr>`;
     updateAccountEditorModeUI();
   } catch (e) {
     console.error(e);
@@ -2898,6 +2962,7 @@ async function saveAccount(asCopy = false) {
       nameVal = `${nameVal}${t('accounts_copy_suffix')}`;
     }
   }
+  const intervalVal = Number(document.getElementById('accCheckInterval')?.value) || 0;
   const acc = {
     id: asCopy ? 0 : origId,
     name: nameVal,
@@ -2912,6 +2977,7 @@ async function saveAccount(asCopy = false) {
     smtp_port: Number(document.getElementById('accSmtpPort').value) || 587,
     smtp_tls: true,
     enabled: document.getElementById('accEnabled').value === '1',
+    check_interval: intervalVal,
   };
   if (!acc.name || !acc.incoming_host) {
     const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
@@ -2948,6 +3014,53 @@ async function deleteAccount(id, ev) {
   const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
   showToast(isEn ? 'Account deleted' : 'アカウントを削除しました');
   await loadAccountsList();
+}
+
+function exportAccounts() {
+  const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+  showToast(isEn ? 'Exporting account configurations...' : 'アカウント設定をエクスポート中...');
+  const a = document.createElement('a');
+  a.href = '/api/accounts/export';
+  a.download = `tunbridge-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function triggerImportAccounts() {
+  const fileInput = document.getElementById('accountsImportFileInput');
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.click();
+  }
+}
+
+async function handleAccountsFileSelected(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+
+  const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
+  try {
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseErr) {
+      showToast(t('accounts_import_err_invalid'), '#ef4444');
+      return;
+    }
+    const res = await apiPost('/api/accounts/import', parsed);
+    if (res && res.imported !== undefined) {
+      showToast(t('accounts_imported_toast', { count: res.imported }), '#10b981');
+      await loadAccountsList();
+      renderProviderFilterUI();
+    } else {
+      showToast(isEn ? 'Import completed' : 'インポートを完了しました', '#10b981');
+    }
+  } catch (e) {
+    showToast(e.message, '#ef4444');
+  }
+}
   renderProviderFilterUI();
 }
 

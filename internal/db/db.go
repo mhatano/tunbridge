@@ -82,19 +82,22 @@ type Email struct {
 }
 
 type Account struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	EmailAddress string `json:"email_address"`
-	Protocol     string `json:"protocol"` // "pop3" or "imap"
-	IncomingHost string `json:"incoming_host"`
-	IncomingPort int    `json:"incoming_port"`
-	IncomingTLS  bool   `json:"incoming_tls"`
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPTLS      bool   `json:"smtp_tls"`
-	Enabled      bool   `json:"enabled"`
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	EmailAddress    string `json:"email_address"`
+	Protocol        string `json:"protocol"` // "pop3", "imap", or "jmap"
+	IncomingHost    string `json:"incoming_host"`
+	IncomingPort    int    `json:"incoming_port"`
+	IncomingTLS     bool   `json:"incoming_tls"`
+	Username        string `json:"username"`
+	Password        string `json:"password"`
+	SMTPHost        string `json:"smtp_host"`
+	SMTPPort        int    `json:"smtp_port"`
+	SMTPTLS         bool   `json:"smtp_tls"`
+	Enabled         bool   `json:"enabled"`
+	CheckInterval   int    `json:"check_interval"`   // Interval in minutes (0 = manual check only)
+	LastCheckedAt   string `json:"last_checked_at"`   // "2006-01-02 15:04:05" or empty
+	LastCheckStatus string `json:"last_check_status"` // e.g. "OK (3 msgs)" or "Error: ..."
 }
 
 type HistoryEvent struct {
@@ -199,7 +202,10 @@ func (s *Store) initSchema() error {
 		smtp_host TEXT NOT NULL DEFAULT '',
 		smtp_port INTEGER NOT NULL DEFAULT 587,
 		smtp_tls INTEGER NOT NULL DEFAULT 1,
-		enabled INTEGER NOT NULL DEFAULT 1
+		enabled INTEGER NOT NULL DEFAULT 1,
+		check_interval INTEGER NOT NULL DEFAULT 0,
+		last_checked_at TEXT DEFAULT '',
+		last_check_status TEXT DEFAULT ''
 	);
 
 	CREATE TABLE IF NOT EXISTS history_events (
@@ -227,6 +233,11 @@ func (s *Store) initSchema() error {
 	if _, err := s.DB.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
+
+	// Migrate existing accounts table if columns are missing
+	_, _ = s.DB.Exec("ALTER TABLE accounts ADD COLUMN check_interval INTEGER NOT NULL DEFAULT 0")
+	_, _ = s.DB.Exec("ALTER TABLE accounts ADD COLUMN last_checked_at TEXT DEFAULT ''")
+	_, _ = s.DB.Exec("ALTER TABLE accounts ADD COLUMN last_check_status TEXT DEFAULT ''")
 
 	return s.seedDefaultBuckets()
 }

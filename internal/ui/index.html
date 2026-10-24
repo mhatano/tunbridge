@@ -470,6 +470,18 @@
                 <option value="0">無効</option>
               </select>
             </div>
+            <div class="form-group" style="width:160px;">
+              <label>定期チェック間隔</label>
+              <select id="accCheckInterval" class="form-control">
+                <option value="0">手動受信のみ</option>
+                <option value="1">1分ごと</option>
+                <option value="5">5分ごと</option>
+                <option value="10">10分ごと</option>
+                <option value="15">15分ごと</option>
+                <option value="30">30分ごと</option>
+                <option value="60">60分ごと</option>
+              </select>
+            </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="btn-primary" id="btnSaveAccount" onclick="saveAccount(false)">💾 アカウント保存</button>
               <button class="btn-secondary" id="btnSaveAccountAsCopy" style="display:none;" onclick="saveAccount(true)" title="元のアカウントを上書きせず、現在のフォーム内容で新しいアカウントとして複製追加します">📋 別エントリとして複製保存</button>
@@ -477,7 +489,14 @@
           </div>
         </div>
 
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">💡 登録済みアカウントの行をクリックすると、上の編集フォームに呼び戻して上書き保存や複製ができます。</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:12px;color:var(--text-muted);">💡 登録済みアカウントの行をクリックすると、上の編集フォームに呼び戻して上書き保存や複製ができます。</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn-secondary" onclick="exportAccounts()" title="登録済みのアカウント設定をJSONファイルとしてエクスポート・バックアップ保存します">📤 アカウント設定エクスポート (JSON)</button>
+            <button class="btn-secondary" onclick="triggerImportAccounts()" title="バックアップされたJSONファイルからアカウント設定を復元・インポートします">📥 アカウント設定インポート (JSON)</button>
+            <input type="file" id="accountsImportFileInput" accept=".json,application/json" style="display:none;" onchange="handleAccountsFileSelected(event)">
+          </div>
+        </div>
 
         <table class="data-table">
           <thead>
@@ -488,6 +507,7 @@
               <th>受信方式</th>
               <th>受信サーバー</th>
               <th>SMTPサーバー</th>
+              <th>定期チェック</th>
               <th>操作</th>
             </tr>
           </thead>

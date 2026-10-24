@@ -359,7 +359,8 @@ func (s *Store) DeleteEmailPermanently(id int64) error {
 func (s *Store) GetAccounts() ([]Account, error) {
 	rows, err := s.DB.Query(`
 		SELECT id, name, email_address, protocol, incoming_host, incoming_port, incoming_tls,
-		       username, password, smtp_host, smtp_port, smtp_tls, enabled
+		       username, password, smtp_host, smtp_port, smtp_tls, enabled,
+		       check_interval, COALESCE(last_checked_at, ''), COALESCE(last_check_status, '')
 		FROM accounts ORDER BY id ASC
 	`)
 	if err != nil {
@@ -374,6 +375,7 @@ func (s *Store) GetAccounts() ([]Account, error) {
 		if err := rows.Scan(
 			&a.ID, &a.Name, &a.EmailAddress, &a.Protocol, &a.IncomingHost, &a.IncomingPort, &inTLS,
 			&a.Username, &a.Password, &a.SMTPHost, &a.SMTPPort, &smtpTLS, &en,
+			&a.CheckInterval, &a.LastCheckedAt, &a.LastCheckStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -401,25 +403,35 @@ func (s *Store) SaveAccount(a *Account) (*Account, error) {
 		_, err := s.DB.Exec(`
 			UPDATE accounts SET
 				name=?, email_address=?, protocol=?, incoming_host=?, incoming_port=?, incoming_tls=?,
-				username=?, password=?, smtp_host=?, smtp_port=?, smtp_tls=?, enabled=?
+				username=?, password=?, smtp_host=?, smtp_port=?, smtp_tls=?, enabled=?,
+				check_interval=?
 			WHERE id=?
 		`, a.Name, a.EmailAddress, a.Protocol, a.IncomingHost, a.IncomingPort, inTLS,
-			a.Username, a.Password, a.SMTPHost, a.SMTPPort, smtpTLS, en, a.ID)
+			a.Username, a.Password, a.SMTPHost, a.SMTPPort, smtpTLS, en, a.CheckInterval, a.ID)
 		return a, err
 	}
 
 	res, err := s.DB.Exec(`
 		INSERT INTO accounts (
 			name, email_address, protocol, incoming_host, incoming_port, incoming_tls,
-			username, password, smtp_host, smtp_port, smtp_tls, enabled
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			username, password, smtp_host, smtp_port, smtp_tls, enabled,
+			check_interval, last_checked_at, last_check_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, a.Name, a.EmailAddress, a.Protocol, a.IncomingHost, a.IncomingPort, inTLS,
-		a.Username, a.Password, a.SMTPHost, a.SMTPPort, smtpTLS, en)
+		a.Username, a.Password, a.SMTPHost, a.SMTPPort, smtpTLS, en,
+		a.CheckInterval, a.LastCheckedAt, a.LastCheckStatus)
 	if err != nil {
 		return nil, err
 	}
 	a.ID, _ = res.LastInsertId()
 	return a, nil
+}
+
+func (s *Store) UpdateAccountCheckStatus(id int64, lastCheckedAt, lastCheckStatus string) error {
+	_, err := s.DB.Exec(`
+		UPDATE accounts SET last_checked_at = ?, last_check_status = ? WHERE id = ?
+	`, lastCheckedAt, lastCheckStatus, id)
+	return err
 }
 
 func (s *Store) DeleteAccount(id int64) error {

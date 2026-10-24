@@ -315,4 +315,110 @@ func TestServerAPIEndToEnd(t *testing.T) {
 	if accListRes.Accounts[1].Name != "Main POP3 Account (Updated) (コピー)" || accListRes.Accounts[1].Enabled {
 		t.Errorf("Unexpected duplicated account state: %+v", accListRes.Accounts[1])
 	}
+
+	// 10. Test /api/accounts/export
+	exportResp, err := http.Get(ts.URL + "/api/accounts/export")
+	if err != nil || exportResp.StatusCode != 200 {
+		t.Fatalf("GET /api/accounts/export failed: %v", err)
+	}
+	cd := exportResp.Header.Get("Content-Disposition")
+	if !strings.Contains(cd, "attachment") || !strings.Contains(cd, "tunbridge-accounts-") {
+		t.Errorf("Expected attachment Content-Disposition header, got %q", cd)
+	}
+	var exportData struct {
+		App      string `json:"app"`
+		Count    int    `json:"count"`
+		Accounts []struct {
+			Name          string `json:"name"`
+			IncomingHost  string `json:"incoming_host"`
+			CheckInterval int    `json:"check_interval"`
+		} `json:"accounts"`
+	}
+	if err := json.NewDecoder(exportResp.Body).Decode(&exportData); err != nil {
+		t.Fatalf("Failed to decode export JSON: %v", err)
+	}
+	exportResp.Body.Close()
+	if exportData.Count != 2 || len(exportData.Accounts) != 2 {
+		t.Fatalf("Expected 2 exported accounts, got %d", exportData.Count)
+	}
+
+	// 11. Test /api/accounts/import with new account
+	importPayload := map[string]any{
+		"accounts": []map[string]any{
+			{
+				"name":           "Imported Fastmail JMAP",
+				"email_address":  "user@fastmail.com",
+				"protocol":       "jmap",
+				"incoming_host":  "api.fastmail.com",
+				"incoming_port":  443,
+				"incoming_tls":   true,
+				"username":       "user@fastmail.com",
+				"password":       "fmpwd",
+				"enabled":        true,
+				"check_interval": 5,
+			},
+		},
+	}
+	importBytes, _ := json.Marshal(importPayload)
+	importResp, err := http.Post(ts.URL+"/api/accounts/import", "application/json", bytes.NewReader(importBytes))
+	if err != nil || importResp.StatusCode != 200 {
+		t.Fatalf("POST /api/accounts/import failed: %v", err)
+	}
+	var importRes struct {
+		OK       bool `json:"ok"`
+		Imported int  `json:"imported"`
+	}
+	_ = json.NewDecoder(importResp.Body).Decode(&importRes)
+	importResp.Body.Close()
+	if !importRes.OK || importRes.Imported != 1 {
+		t.Fatalf("Expected imported=1, got %+v", importRes)
+	}
+
+	// Verify 3 accounts now exist and check_interval is 5
+	accListResp2, err := http.Get(ts.URL + "/api/accounts")
+	if err != nil || accListResp2.StatusCode != 200 {
+		t.Fatalf("GET /api/accounts after import failed: %v", err)
+	}
+	var accListRes2 struct {
+		Accounts []db.Account `json:"accounts"`
+	}
+	_ = json.NewDecoder(accListResp2.Body).Decode(&accListRes2)
+	accListResp2.Body.Close()
+	if len(accListRes2.Accounts) != 3 {
+		t.Fatalf("Expected 3 accounts after import, got %d", len(accListRes2.Accounts))
+	}
+	var jmapAcc *db.Account
+	for _, a := range accListRes2.Accounts {
+		if a.Name == "Imported Fastmail JMAP" {
+			jmapAcc = &a
+			break
+		}
+	}
+	if jmapAcc == nil {
+		t.Fatalf("Could not find imported JMAP account in list")
+	}
+	if jmapAcc.CheckInterval != 5 || jmapAcc.Protocol != "jmap" {
+		t.Errorf("Unexpected imported account details: %+v", jmapAcc)
+	}
+
+	// Test UpdateAccountCheckStatus
+	testTime := "2026-10-24 19:00:00"
+	testStatus := "成功 (1通受信)"
+	if err := store.UpdateAccountCheckStatus(jmapAcc.ID, testTime, testStatus); err != nil {
+		t.Fatalf("UpdateAccountCheckStatus failed: %v", err)
+	}
+	accountsRefreshed, _ := store.GetAccounts()
+	foundUpdated := false
+	for _, a := range accountsRefreshed {
+		if a.ID == jmapAcc.ID {
+			if a.LastCheckedAt != testTime || a.LastCheckStatus != testStatus {
+				t.Errorf("Expected updated check status %q/%q, got %q/%q", testTime, testStatus, a.LastCheckedAt, a.LastCheckStatus)
+			}
+			foundUpdated = true
+			break
+		}
+	}
+	if !foundUpdated {
+		t.Errorf("Could not verify updated account in store")
+	}
 }

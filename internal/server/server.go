@@ -4,11 +4,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"tunbridge/internal/classifier"
@@ -20,14 +23,26 @@ type Server struct {
 	Store  *db.Store
 	Engine *classifier.Engine
 	UIFS   fs.FS
+
+	fetchingMu    sync.Mutex
+	fetchingAccs  map[int64]bool
+	lastNetLogsMu sync.RWMutex
+	lastNetLogs   []*mail.NetworkDiagReport
+	schedulerStop chan struct{}
+	schedulerOnce sync.Once
+	stopOnce      sync.Once
 }
 
 func NewServer(store *db.Store, engine *classifier.Engine, uiFS fs.FS) *Server {
-	return &Server{
-		Store:  store,
-		Engine: engine,
-		UIFS:   uiFS,
+	s := &Server{
+		Store:         store,
+		Engine:        engine,
+		UIFS:          uiFS,
+		fetchingAccs:  make(map[int64]bool),
+		schedulerStop: make(chan struct{}),
 	}
+	s.StartScheduler()
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -67,11 +82,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/corpus/lookup", s.handleWordLookup)
 	mux.HandleFunc("/api/corpus/test", s.handleCorpusTest)
 
-	// POP3 / IMAP / SMTP Accounts
+	// POP3 / IMAP / JMAP / SMTP Accounts
 	mux.HandleFunc("/api/accounts", s.handleGetAccounts)
 	mux.HandleFunc("/api/accounts/save", s.handleSaveAccount)
 	mux.HandleFunc("/api/accounts/delete", s.handleDeleteAccount)
 	mux.HandleFunc("/api/accounts/fetch", s.handleFetchAccount)
+	mux.HandleFunc("/api/accounts/export", s.handleExportAccounts)
+	mux.HandleFunc("/api/accounts/import", s.handleImportAccounts)
 
 	// Static UI
 	mux.Handle("/", http.FileServer(http.FS(s.UIFS)))
@@ -662,7 +679,13 @@ func (s *Server) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
 	if accs == nil {
 		accs = []db.Account{}
 	}
-	writeJSON(w, 200, map[string]any{"accounts": accs})
+	s.lastNetLogsMu.RLock()
+	netLogs := s.lastNetLogs
+	s.lastNetLogsMu.RUnlock()
+	writeJSON(w, 200, map[string]any{
+		"accounts":        accs,
+		"last_net_errors": netLogs,
+	})
 }
 
 func (s *Server) handleSaveAccount(w http.ResponseWriter, r *http.Request) {
@@ -716,19 +739,349 @@ func (s *Server) handleFetchAccount(w http.ResponseWriter, r *http.Request) {
 		if !a.Enabled && req.ID == 0 {
 			continue
 		}
+
+		s.fetchingMu.Lock()
+		if s.fetchingAccs[a.ID] {
+			s.fetchingMu.Unlock()
+			errors = append(errors, fmt.Sprintf("%s: 現在メール取得処理を実行中です", a.Name))
+			continue
+		}
+		s.fetchingAccs[a.ID] = true
+		s.fetchingMu.Unlock()
+
 		n, diag, err := mail.FetchAccountWithDiag(&a, s.Store, s.Engine)
+
+		s.fetchingMu.Lock()
+		delete(s.fetchingAccs, a.ID)
+		s.fetchingMu.Unlock()
+
+		checkTime := time.Now().Format("2006-01-02 15:04:05")
+		status := ""
 		totalFetched += n
 		if err != nil {
+			status = fmt.Sprintf("エラー: %v", err)
 			errors = append(errors, fmt.Sprintf("%s: %v", a.Name, err))
 			if diag != nil {
 				netLogs = append(netLogs, diag)
+				s.recordNetLog(diag)
 			}
+		} else {
+			status = fmt.Sprintf("成功 (%d通受信)", n)
 		}
+		_ = s.Store.UpdateAccountCheckStatus(a.ID, checkTime, status)
 	}
 
 	writeJSON(w, 200, map[string]any{
 		"fetched":  totalFetched,
 		"errors":   errors,
 		"net_logs": netLogs,
+	})
+}
+
+func (s *Server) recordNetLog(diag *mail.NetworkDiagReport) {
+	if diag == nil {
+		return
+	}
+	s.lastNetLogsMu.Lock()
+	defer s.lastNetLogsMu.Unlock()
+
+	found := false
+	for i, existing := range s.lastNetLogs {
+		if existing.AccountID == diag.AccountID {
+			s.lastNetLogs[i] = diag
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.lastNetLogs = append(s.lastNetLogs, diag)
+	}
+	if len(s.lastNetLogs) > 10 {
+		s.lastNetLogs = s.lastNetLogs[len(s.lastNetLogs)-10:]
+	}
+}
+
+func (s *Server) StartScheduler() {
+	s.schedulerOnce.Do(func() {
+		go func() {
+			select {
+			case <-s.schedulerStop:
+				return
+			case <-time.After(3 * time.Second):
+			}
+
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+
+			s.checkScheduledAccounts()
+
+			for {
+				select {
+				case <-s.schedulerStop:
+					return
+				case <-ticker.C:
+					s.checkScheduledAccounts()
+				}
+			}
+		}()
+	})
+}
+
+func (s *Server) StopScheduler() {
+	s.stopOnce.Do(func() {
+		close(s.schedulerStop)
+	})
+}
+
+func (s *Server) checkScheduledAccounts() {
+	accs, err := s.Store.GetAccounts()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, a := range accs {
+		if !a.Enabled || a.CheckInterval <= 0 {
+			continue
+		}
+
+		interval := time.Duration(a.CheckInterval) * time.Minute
+		shouldCheck := false
+		if a.LastCheckedAt == "" {
+			shouldCheck = true
+		} else {
+			t, parseErr := time.Parse("2006-01-02 15:04:05", a.LastCheckedAt)
+			if parseErr != nil {
+				shouldCheck = true
+			} else if now.Sub(t) >= interval {
+				shouldCheck = true
+			}
+		}
+
+		if !shouldCheck {
+			continue
+		}
+
+		s.fetchingMu.Lock()
+		if s.fetchingAccs[a.ID] {
+			s.fetchingMu.Unlock()
+			continue
+		}
+		s.fetchingAccs[a.ID] = true
+		s.fetchingMu.Unlock()
+
+		go func(acc db.Account) {
+			defer func() {
+				s.fetchingMu.Lock()
+				delete(s.fetchingAccs, acc.ID)
+				s.fetchingMu.Unlock()
+			}()
+
+			checkTime := time.Now().Format("2006-01-02 15:04:05")
+			n, diag, fetchErr := mail.FetchAccountWithDiag(&acc, s.Store, s.Engine)
+			status := ""
+			if fetchErr != nil {
+				status = fmt.Sprintf("エラー: %v", fetchErr)
+				if diag != nil {
+					s.recordNetLog(diag)
+				}
+				log.Printf("[Scheduler] アカウント %s (%s) 定期チェック失敗: %v", acc.Name, acc.EmailAddress, fetchErr)
+			} else {
+				status = fmt.Sprintf("成功 (%d通受信)", n)
+				if n > 0 {
+					log.Printf("[Scheduler] アカウント %s (%s) 定期チェック完了: %d 通受信・分類", acc.Name, acc.EmailAddress, n)
+				}
+			}
+			_ = s.Store.UpdateAccountCheckStatus(acc.ID, checkTime, status)
+		}(a)
+	}
+}
+
+func (s *Server) handleExportAccounts(w http.ResponseWriter, r *http.Request) {
+	accs, err := s.Store.GetAccounts()
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if accs == nil {
+		accs = []db.Account{}
+	}
+
+	type AccountExportItem struct {
+		Name          string `json:"name"`
+		EmailAddress  string `json:"email_address"`
+		Protocol      string `json:"protocol"`
+		IncomingHost  string `json:"incoming_host"`
+		IncomingPort  int    `json:"incoming_port"`
+		IncomingTLS   bool   `json:"incoming_tls"`
+		Username      string `json:"username"`
+		Password      string `json:"password"`
+		SMTPHost      string `json:"smtp_host"`
+		SMTPPort      int    `json:"smtp_port"`
+		SMTPTLS       bool   `json:"smtp_tls"`
+		Enabled       bool   `json:"enabled"`
+		CheckInterval int    `json:"check_interval"`
+	}
+
+	items := make([]AccountExportItem, 0, len(accs))
+	for _, a := range accs {
+		items = append(items, AccountExportItem{
+			Name:          a.Name,
+			EmailAddress:  a.EmailAddress,
+			Protocol:      a.Protocol,
+			IncomingHost:  a.IncomingHost,
+			IncomingPort:  a.IncomingPort,
+			IncomingTLS:   a.IncomingTLS,
+			Username:      a.Username,
+			Password:      a.Password,
+			SMTPHost:      a.SMTPHost,
+			SMTPPort:      a.SMTPPort,
+			SMTPTLS:       a.SMTPTLS,
+			Enabled:       a.Enabled,
+			CheckInterval: a.CheckInterval,
+		})
+	}
+
+	payload := map[string]any{
+		"app":         "Tunbridge",
+		"version":     "1.0",
+		"exported_at": time.Now().Format("2006-01-02 15:04:05"),
+		"count":       len(items),
+		"accounts":    items,
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="tunbridge-accounts-%s.json"`, time.Now().Format("20060102-150405")))
+	_, _ = w.Write(data)
+}
+
+func (s *Server) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, 405, "Method not allowed")
+		return
+	}
+
+	var rawData []byte
+	contentType := r.Header.Get("Content-Type")
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			writeError(w, 400, "ファイルの解析に失敗しました: "+err.Error())
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, 400, "アップロードファイルが見つかりません: "+err.Error())
+			return
+		}
+		defer file.Close()
+		rawData, err = io.ReadAll(file)
+		if err != nil {
+			writeError(w, 500, "ファイルの読み込みに失敗しました: "+err.Error())
+			return
+		}
+	} else {
+		var err error
+		rawData, err = io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, 400, "リクエストの読み込みに失敗しました: "+err.Error())
+			return
+		}
+	}
+
+	type AccountItem struct {
+		Name          string `json:"name"`
+		EmailAddress  string `json:"email_address"`
+		Protocol      string `json:"protocol"`
+		IncomingHost  string `json:"incoming_host"`
+		IncomingPort  int    `json:"incoming_port"`
+		IncomingTLS   bool   `json:"incoming_tls"`
+		Username      string `json:"username"`
+		Password      string `json:"password"`
+		SMTPHost      string `json:"smtp_host"`
+		SMTPPort      int    `json:"smtp_port"`
+		SMTPTLS       bool   `json:"smtp_tls"`
+		Enabled       bool   `json:"enabled"`
+		CheckInterval int    `json:"check_interval"`
+	}
+
+	var items []AccountItem
+	var container struct {
+		Accounts []AccountItem `json:"accounts"`
+	}
+	if err := json.Unmarshal(rawData, &container); err == nil && len(container.Accounts) > 0 {
+		items = container.Accounts
+	} else {
+		if err := json.Unmarshal(rawData, &items); err != nil {
+			writeError(w, 400, "アカウント設定ファイルの形式が正しくありません (JSONパースエラー)")
+			return
+		}
+	}
+
+	if len(items) == 0 {
+		writeError(w, 400, "インポート対象のアカウントが見つかりません")
+		return
+	}
+
+	existingAccs, _ := s.Store.GetAccounts()
+	importedCount := 0
+
+	for _, item := range items {
+		if strings.TrimSpace(item.Name) == "" || strings.TrimSpace(item.IncomingHost) == "" {
+			continue
+		}
+		proto := strings.ToLower(strings.TrimSpace(item.Protocol))
+		if proto == "" {
+			proto = "pop3"
+		}
+		port := item.IncomingPort
+		if port <= 0 {
+			if proto == "jmap" {
+				port = 443
+			} else if proto == "imap" {
+				port = 993
+			} else {
+				port = 995
+			}
+		}
+
+		var existingID int64 = 0
+		for _, ea := range existingAccs {
+			if ea.Name == item.Name && ea.EmailAddress == item.EmailAddress {
+				existingID = ea.ID
+				break
+			}
+		}
+
+		acc := &db.Account{
+			ID:            existingID,
+			Name:          item.Name,
+			EmailAddress:  item.EmailAddress,
+			Protocol:      proto,
+			IncomingHost:  item.IncomingHost,
+			IncomingPort:  port,
+			IncomingTLS:   item.IncomingTLS,
+			Username:      item.Username,
+			Password:      item.Password,
+			SMTPHost:      item.SMTPHost,
+			SMTPPort:      item.SMTPPort,
+			SMTPTLS:       item.SMTPTLS,
+			Enabled:       item.Enabled,
+			CheckInterval: item.CheckInterval,
+		}
+		if _, err := s.Store.SaveAccount(acc); err == nil {
+			importedCount++
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{
+		"ok":       true,
+		"imported": importedCount,
 	})
 }
