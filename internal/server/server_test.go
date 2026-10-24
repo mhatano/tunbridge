@@ -421,4 +421,29 @@ func TestServerAPIEndToEnd(t *testing.T) {
 	if !foundUpdated {
 		t.Errorf("Could not verify updated account in store")
 	}
+
+	// 12. Test /api/window/state (POST & GET)
+	winPayload := `{"x": 120, "y": 80, "width": 1400, "height": 900, "maximized": false}`
+	winPostResp, err := http.Post(ts.URL+"/api/window/state", "application/json", strings.NewReader(winPayload))
+	if err != nil || winPostResp.StatusCode != 200 {
+		t.Fatalf("POST /api/window/state failed: %v", err)
+	}
+	winPostResp.Body.Close()
+
+	winGetResp, err := http.Get(ts.URL + "/api/window/state")
+	if err != nil || winGetResp.StatusCode != 200 {
+		t.Fatalf("GET /api/window/state failed: %v", err)
+	}
+	var winState struct {
+		X         int  `json:"x"`
+		Y         int  `json:"y"`
+		Width     int  `json:"width"`
+		Height    int  `json:"height"`
+		Maximized bool `json:"maximized"`
+	}
+	_ = json.NewDecoder(winGetResp.Body).Decode(&winState)
+	winGetResp.Body.Close()
+	if winState.X != 120 || winState.Y != 80 || winState.Width != 1400 || winState.Height != 900 {
+		t.Errorf("Unexpected window state: %+v", winState)
+	}
 }

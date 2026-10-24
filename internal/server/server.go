@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,6 +91,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/accounts/fetch", s.handleFetchAccount)
 	mux.HandleFunc("/api/accounts/export", s.handleExportAccounts)
 	mux.HandleFunc("/api/accounts/import", s.handleImportAccounts)
+
+	// Window Size & Position Persistence
+	mux.HandleFunc("/api/window/state", s.handleWindowState)
 
 	// Static UI
 	mux.Handle("/", http.FileServer(http.FS(s.UIFS)))
@@ -1084,4 +1089,45 @@ func (s *Server) handleImportAccounts(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"imported": importedCount,
 	})
+}
+
+func (s *Server) handleWindowState(w http.ResponseWriter, r *http.Request) {
+	stateFile := filepath.Join(".webview2_data", "window_state.json")
+	if r.Method == http.MethodGet {
+		data, err := os.ReadFile(stateFile)
+		if err != nil {
+			writeError(w, 404, "Window state not found")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write(data)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			X         int  `json:"x"`
+			Y         int  `json:"y"`
+			Width     int  `json:"width"`
+			Height    int  `json:"height"`
+			Maximized bool `json:"maximized"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+		if req.Width < 600 || req.Height < 450 {
+			writeError(w, 400, "Window dimensions too small")
+			return
+		}
+		_ = os.MkdirAll(".webview2_data", 0755)
+		data, err := json.MarshalIndent(req, "", "  ")
+		if err == nil {
+			_ = os.WriteFile(stateFile, data, 0644)
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+
+	writeError(w, 405, "Method not allowed")
 }

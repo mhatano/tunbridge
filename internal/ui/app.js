@@ -321,6 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (grpChk) grpChk.checked = state.groupByProvider;
   setupKeyboardNavigation();
   initMailPaneResizer();
+  initWindowStateListener();
   await loadAccountsList();
   await refreshOverview();
   updateCurrentListTitle();
@@ -1027,6 +1028,74 @@ async function selectEmail(id, options = {}) {
   } catch (e) {
     showToast(e.message, '#ef4444');
   }
+}
+
+// ============================================================================
+// Window Size & Position Persistence
+// ============================================================================
+let saveWindowStateTimer = null;
+
+function saveCurrentWindowState() {
+  if (saveWindowStateTimer) clearTimeout(saveWindowStateTimer);
+  saveWindowStateTimer = setTimeout(() => {
+    try {
+      const isMaximized =
+        window.outerWidth >= (window.screen.availWidth - 16) &&
+        window.outerHeight >= (window.screen.availHeight - 16);
+
+      const winState = {
+        x: window.screenX,
+        y: window.screenY,
+        width: window.outerWidth,
+        height: window.outerHeight,
+        maximized: isMaximized,
+      };
+
+      if (winState.width >= 600 && winState.height >= 450) {
+        fetch('/api/window/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(winState),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 400);
+}
+
+function initWindowStateListener() {
+  window.addEventListener('resize', saveCurrentWindowState);
+  window.addEventListener('beforeunload', () => {
+    try {
+      const isMaximized =
+        window.outerWidth >= (window.screen.availWidth - 16) &&
+        window.outerHeight >= (window.screen.availHeight - 16);
+      const winState = {
+        x: window.screenX,
+        y: window.screenY,
+        width: window.outerWidth,
+        height: window.outerHeight,
+        maximized: isMaximized,
+      };
+      if (winState.width >= 600 && winState.height >= 450) {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/window/state', JSON.stringify(winState));
+        }
+      }
+    } catch (e) {}
+  });
+
+  let lastX = window.screenX;
+  let lastY = window.screenY;
+  setInterval(() => {
+    if (window.screenX !== lastX || window.screenY !== lastY) {
+      lastX = window.screenX;
+      lastY = window.screenY;
+      saveCurrentWindowState();
+    }
+  }, 2000);
 }
 
 // ============================================================================
