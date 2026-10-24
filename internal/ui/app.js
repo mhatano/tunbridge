@@ -3014,6 +3014,7 @@ async function deleteAccount(id, ev) {
   const isEn = typeof getCurrentLang === 'function' && getCurrentLang() === 'en';
   showToast(isEn ? 'Account deleted' : 'アカウントを削除しました');
   await loadAccountsList();
+  renderProviderFilterUI();
 }
 
 function exportAccounts() {
@@ -3060,8 +3061,6 @@ async function handleAccountsFileSelected(ev) {
   } catch (e) {
     showToast(e.message, '#ef4444');
   }
-}
-  renderProviderFilterUI();
 }
 
 async function fetchSingleAccount(id, ev) {
