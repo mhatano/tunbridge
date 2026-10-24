@@ -8,8 +8,8 @@ Pure Go 製 SQLite（`modernc.org/sqlite`）と埋め込みアセット（`embed
 
 1. **マルチバケット・ナイーブベイズ自動分類 (`internal/classifier`)**
    - 標準バケット（`inbox`, `work`, `newsletter`, `finance`, `spam`, `unclassified`）に加え、任意のカスタムバケットを追加・編集可能。
-   - POPFile互換のヘッダ疑似トークン（`from:`, `domain:`, `to:`, `subject:`, `url:`, `html:`）と日本語（漢字複合語・N-gram・カタカナ語）・英語トークナイザを搭載。
-   - メールヘッダへ `X-Text-Classification: <bucket>` および `X-POPFile-Confidence` を自動付与。
+   - ヘッダ疑似トークン（`from:`, `domain:`, `to:`, `subject:`, `url:`, `html:`）と日本語（漢字複合語・N-gram・カタカナ語）・英語トークナイザを搭載。
+   - メールヘッダへ POPFile 互換の `X-Text-Classification: <bucket>` および `X-POPFile-Confidence` を自動付与。
 2. **TOE (Train On Error) ワンクリック再学習**
    - メール閲覧画面上部のバケットボタンをクリックするだけで即座に再分類し、旧バケットからの単語減算・新バケットへの単語加算と精度統計（FP/FN）の更新を実行。
 3. **単語スコア・確率の可視化 & コーパス管理**

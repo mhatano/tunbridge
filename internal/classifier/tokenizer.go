@@ -33,7 +33,7 @@ var stopWords = map[string]bool{
 	"www": true, "html": true, "mailto": true,
 }
 
-// TokenizeEmail extracts POPFile-style token frequencies from an email's headers and body.
+// TokenizeEmail extracts token frequencies from an email's headers and body.
 // Header tokens are prefixed (e.g., "from:...", "domain:...", "subject:...").
 func TokenizeEmail(fromName, fromAddr, toAddr, subject, bodyText, bodyHTML string) map[string]int {
 	counts := make(map[string]int)

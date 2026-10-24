@@ -151,7 +151,7 @@ func TestServerAPIEndToEnd(t *testing.T) {
 	}
 
 	// 6. Test Sending Email with Attachments, Downloading Attachment, Exporting & Re-Importing EML with Attachments
-	attData := []byte("POPFile Attachment Binary Content 1234567890\n添付ファイルテスト")
+	attData := []byte("Attachment Binary Content 1234567890\n添付ファイルテスト")
 	sendPayload, _ := json.Marshal(map[string]any{
 		"account_id": 0,
 		"to":         "partner@corp-tech.co.jp",

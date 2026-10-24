@@ -10,8 +10,8 @@ import (
 	"tunbridge/internal/mail"
 )
 
-func TestPOPFileClassifierAndTOE(t *testing.T) {
-	tmpDB := filepath.Join(t.TempDir(), "test_popfile.db")
+func TestClassifierAndTOE(t *testing.T) {
+	tmpDB := filepath.Join(t.TempDir(), "test_classifier.db")
 	store, err := db.NewStore(tmpDB)
 	if err != nil {
 		t.Fatalf("NewStore failed: %v", err)

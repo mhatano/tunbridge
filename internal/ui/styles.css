@@ -618,7 +618,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Mail Reader & POPFile Inspector Pane */
+/* Mail Reader & Inspector Pane */
 .mail-reader-pane {
   flex: 1;
   display: flex;
@@ -796,7 +796,7 @@ body {
   font-size: 12px;
 }
 
-/* POPFile Reclassify Bar (TOE) */
+/* Reclassify Bar (TOE) */
 .popfile-bar {
   background: #172033;
   border-bottom: 1px solid var(--border);
@@ -1174,7 +1174,7 @@ body {
   border: 1px solid var(--border);
 }
 
-/* POPFile Colored Words View */
+/* Colored Words View */
 .colored-token {
   padding: 1px 4px;
   border-radius: 4px;

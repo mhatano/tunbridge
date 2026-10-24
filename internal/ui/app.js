@@ -7,8 +7,9 @@ const DEFAULT_PINNED_HEADERS = [
 
 const PRESET_HEADER_OPTIONS = [
   { name: 'Date', label: 'Date (送信日時)', labelEn: 'Date (Sent Date)' },
-  { name: 'X-Text-Classification', label: 'X-Text-Classification (POPFile分類)', labelEn: 'X-Text-Classification (Classification)' },
-  { name: 'X-POPFile-Confidence', label: 'X-POPFile-Confidence (確信度)', labelEn: 'X-POPFile-Confidence (Confidence)' },
+  { name: 'X-Text-Classification', label: 'X-Text-Classification (自動分類)', labelEn: 'X-Text-Classification (Classification)' },
+  { name: 'X-POPFile-Confidence', label: 'X-POPFile-Confidence (POPFile互換・確信度)', labelEn: 'X-POPFile-Confidence (POPFile Confidence)' },
+  { name: 'X-Bayes-Confidence', label: 'X-Bayes-Confidence (確信度)', labelEn: 'X-Bayes-Confidence (Confidence)' },
   { name: 'Message-ID', label: 'Message-ID (メッセージ識別子)', labelEn: 'Message-ID' },
   { name: 'Reply-To', label: 'Reply-To (返信先アドレス)', labelEn: 'Reply-To' },
   { name: 'Return-Path', label: 'Return-Path (バウンス返送先)', labelEn: 'Return-Path (Bounce Return)' },
@@ -20,10 +21,12 @@ const PRESET_HEADER_OPTIONS = [
 
 function loadSavedPinnedHeaders() {
   try {
-    const raw = localStorage.getItem('popfile_pinned_headers');
+    const raw = localStorage.getItem('tunbridge_pinned_headers') || localStorage.getItem('popfile_pinned_headers');
     if (raw) {
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
+      if (Array.isArray(arr)) {
+        return arr.map((h) => (h === 'X-Bayes-Confidence' ? 'X-POPFile-Confidence' : h));
+      }
     }
   } catch (e) {}
   return [...DEFAULT_PINNED_HEADERS];
@@ -39,7 +42,7 @@ const DEFAULT_FONT_SETTINGS = {
 
 function loadSavedFontSettings() {
   try {
-    const raw = localStorage.getItem('popfile_font_settings');
+    const raw = localStorage.getItem('tunbridge_font_settings') || localStorage.getItem('popfile_font_settings');
     if (raw) {
       const obj = JSON.parse(raw);
       if (obj && typeof obj === 'object') {
@@ -52,7 +55,7 @@ function loadSavedFontSettings() {
 
 function loadSavedGroupByProvider() {
   try {
-    const raw = localStorage.getItem('popfile_group_by_provider');
+    const raw = localStorage.getItem('tunbridge_group_by_provider') ?? localStorage.getItem('popfile_group_by_provider');
     if (raw !== null) return raw === '1';
   } catch (e) {}
   return true;
@@ -167,7 +170,7 @@ function applyFontSettings() {
 
 function saveFontSettings() {
   try {
-    localStorage.setItem('popfile_font_settings', JSON.stringify(state.fontSettings));
+    localStorage.setItem('tunbridge_font_settings', JSON.stringify(state.fontSettings));
   } catch (e) {}
 }
 
@@ -648,7 +651,7 @@ function getEmailProviderInfo(em) {
   }
 
   // 4. Demo / Seed / Local Sample emails
-  if (uidl.startsWith('seed-') || uidl.startsWith('sim-') || toAddr.includes('example.jp') || fromAddr.includes('local.popfile')) {
+  if (uidl.startsWith('seed-') || uidl.startsWith('sim-') || toAddr.includes('example.jp') || fromAddr.includes('local.tunbridge') || fromAddr.includes('local.popfile')) {
     return {
       key: 'provider:demo',
       name: t('provider_demo'),
@@ -819,7 +822,7 @@ function selectProviderSidebar(providerKey) {
 function toggleGroupByProvider(checked) {
   state.groupByProvider = Boolean(checked);
   try {
-    localStorage.setItem('popfile_group_by_provider', state.groupByProvider ? '1' : '0');
+    localStorage.setItem('tunbridge_group_by_provider', state.groupByProvider ? '1' : '0');
   } catch (e) {}
   renderEmailList();
   focusMailList();
@@ -1418,7 +1421,7 @@ function parseEmailHeaders(em, confPct) {
     }
   }
 
-  // Ensure standard & POPFile headers have fallback values from Email object
+  // Ensure standard & classification headers have fallback values from Email object
   const formattedFrom = em.from_name ? `${em.from_name} <${em.from_address}>` : em.from_address;
   setHeader('From', formattedFrom, true);
   setHeader('To', em.to_address || '', false);
@@ -1449,7 +1452,7 @@ function openHeaderConfigModal() {
 
 function savePinnedHeaders() {
   try {
-    localStorage.setItem('popfile_pinned_headers', JSON.stringify(state.pinnedHeaders));
+    localStorage.setItem('tunbridge_pinned_headers', JSON.stringify(state.pinnedHeaders));
   } catch (e) {}
 }
 
@@ -1614,7 +1617,7 @@ function renderMailReader() {
       `
       : '';
 
-  // Reclassification buttons (POPFile TOE Bar)
+  // Reclassification buttons (TOE Bar)
   const reclassBtns = activeBuckets
     .map((b) => {
       const isCurrent = b.id === em.bucket_id;
@@ -1702,11 +1705,11 @@ function renderMailReader() {
       ${otherRowsHTML}
     </div>
 
-    <!-- POPFile TOE Bar -->
+    <!-- Classification & TOE Bar -->
     <div class="popfile-bar">
       <div class="popfile-bar-top">
         <div class="popfile-status-info">
-          <span><strong>${t('popfile_judgment')}</strong></span>
+          <span><strong>${t('classification_judgment')}</strong></span>
           <span class="bucket-pill" style="background:${em.bucket_color};font-size:12px;padding:3px 10px;">
             ${escapeHTML(emBucketLabel)} (${confPct}%)
           </span>
@@ -1760,7 +1763,7 @@ function renderMailReader() {
   }
 }
 
-// POPFile Colored Message View: Highlights recognized corpus tokens in subject & body with their strongest bucket's color!
+// Colored Message View: Highlights recognized corpus tokens in subject & body with their strongest bucket's color!
 function renderColoredMessageView(em, exp) {
   const words = (exp && exp.top_words) || [];
   // Build lookup of raw words (without prefix like subject:)
@@ -1826,7 +1829,7 @@ function renderColoredMessageView(em, exp) {
   `;
 }
 
-// POPFile Word Score Matrix & Posterior Probabilities
+// Word Score Matrix & Posterior Probabilities
 function renderWordScoreMatrix(em, exp) {
   if (!exp) return '';
   const details = exp.bucket_details || [];
@@ -1915,7 +1918,7 @@ async function reclassifyCurrentEmail(bucketId, bucketLabel) {
       email_id: state.selectedEmailId,
       bucket_id: bucketId,
     });
-    showToast(`「${bucketLabel}」へ再分類し、POPFileコーパスをTOE学習しました！`, '#10b981');
+    showToast(`「${bucketLabel}」へ再分類し、コーパスをTOE学習しました！`, '#10b981');
     await refreshOverview();
     await loadEmails();
     await selectEmail(state.selectedEmailId);
@@ -1956,7 +1959,7 @@ async function markEmails(ids, action) {
 async function quickSimulate(count, category) {
   try {
     const res = await apiPost('/api/emails/simulate', { count, category });
-    showToast(`${res.count} 通の新着サンプルメールを受信・POPFile自動分類しました！`, '#10b981');
+    showToast(`${res.count} 通の新着サンプルメールを受信・自動分類しました！`, '#10b981');
     await refreshOverview();
     await loadEmails();
     if (res.emails && res.emails.length > 0) {
@@ -2060,7 +2063,7 @@ function openAttachmentInNewWindow(attId) {
   const url = `/api/emails/attachment?id=${id}&inline=1`;
   window.open(
     url,
-    `popfile_att_${id}`,
+    `attachment_${id}`,
     'width=1020,height=780,resizable=yes,scrollbars=yes,menubar=no,toolbar=no,location=no,status=no'
   );
 }
@@ -2396,7 +2399,7 @@ function replyAllCurrentEmail() {
   const primaryTo = replyToEntry && replyToEntry.value ? replyToEntry.value : em.from_address;
 
   // Build set of own addresses and primaryTo addresses to exclude from Cc
-  const excludedEmails = new Set(['me@example.jp', 'me@local.popfile']);
+  const excludedEmails = new Set(['me@example.jp', 'me@local.tunbridge', 'me@local.popfile']);
   for (const a of state.accounts || []) {
     if (a.email_address) excludedEmails.add(String(a.email_address).toLowerCase());
   }
@@ -3226,7 +3229,7 @@ async function fetchSingleAccount(id, ev) {
       }
     } else {
       clearFailedNetLogs();
-      showToast(isEn ? `Fetched and classified ${res.fetched} new message(s)` : `${res.fetched} 通の新着メールを受信・POPFile自動分類しました`, '#10b981');
+      showToast(isEn ? `Fetched and classified ${res.fetched} new message(s)` : `${res.fetched} 通の新着メールを受信・自動分類しました`, '#10b981');
     }
     await refreshOverview();
     await loadEmails();

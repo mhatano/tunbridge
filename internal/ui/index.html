@@ -84,13 +84,13 @@
       <div id="providerNavList"></div>
 
       <div class="nav-section-title">
-        <span>POPFile バケット</span>
+        <span>分類バケット</span>
         <span style="cursor:pointer;color:var(--accent);" onclick="switchMainView('buckets')">＋管理</span>
       </div>
       <div id="bucketNavList"></div>
 
       <div class="nav-section-title">
-        <span>POPFile コントロールセンター</span>
+        <span>コントロールセンター</span>
       </div>
       <div id="controlNavList">
         <div class="nav-item" id="navMagnets" onclick="switchMainView('magnets')">
@@ -152,11 +152,11 @@
       <!-- Resizer Splitter between Mail List and Reader Pane -->
       <div class="pane-resizer" id="mailPaneResizer" title="ドラッグして一覧と閲覧ペインの幅を調整 (ダブルクリックで初期幅に戻す)"></div>
 
-      <!-- Right Mail Reader & POPFile Inspector -->
+      <!-- Right Mail Reader & Inspector -->
       <section class="mail-reader-pane" id="mailReaderPane">
         <div class="empty-reader">
           <div style="font-size:36px;">📬</div>
-          <div>左のリストからメールを選択すると、本文および POPFile 単語確率・分類根拠が表示されます</div>
+          <div>左のリストからメールを選択すると、本文および単語確率・分類根拠が表示されます</div>
         </div>
       </section>
     </main>
@@ -166,7 +166,7 @@
       <div class="full-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">🧲 POPFile マグネット (無条件振り分けルール)</div>
+            <div class="panel-title">🧲 マグネット (無条件振り分けルール)</div>
             <div class="panel-subtitle">特定の差出人・ドメイン・宛先・件名キーワードを含むメールを、ベイズ判定より優先して指定バケットへ確定振り分けします。</div>
           </div>
           <button class="btn-secondary" onclick="rescanEmails(false)">🔄 既存メールにマグネットを再適用</button>
@@ -222,7 +222,7 @@
       <div class="full-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">📚 POPFile コーパス辞書 & 単語確率インスペクタ</div>
+            <div class="panel-title">📚 コーパス辞書 & 単語確率インスペクタ</div>
             <div class="panel-subtitle">各バケットが学習した単語（ヘッダ疑似トークン `from:`, `subject:`, `domain:` 含む）の出現頻度とベイズ確率を検証します。</div>
           </div>
         </div>
@@ -284,7 +284,7 @@
       <div class="full-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">📊 POPFile バケット管理 & 分類精度統計</div>
+            <div class="panel-title">📊 バケット管理 & 分類精度統計</div>
             <div class="panel-subtitle">マルチバケットの作成・カラー設定・コーパス初期化および TOE (Train On Error) 統計を確認できます。</div>
           </div>
         </div>
@@ -335,7 +335,7 @@
       <div class="full-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">🕒 POPFile 分類・再学習 (TOE) 履歴ログ</div>
+            <div class="panel-title">🕒 自動分類・再学習 (TOE) 履歴ログ</div>
             <div class="panel-subtitle">受信時の自動分類結果、マグネット発動、およびユーザーによる再分類（TOE学習）の履歴です。</div>
           </div>
           <button class="btn-secondary" onclick="loadHistoryView()">🔄 更新</button>
@@ -552,7 +552,7 @@
           </div>
 
           <div class="card">
-            <div style="font-weight:700;margin-bottom:8px;">🔄 メール受信時の POPFile 自動判定パイプライン</div>
+            <div style="font-weight:700;margin-bottom:8px;">🔄 メール受信時の自動判定パイプライン</div>
             <div class="help-flow-box">
               <div class="help-flow-step">1. メール受信 / 取り込み</div>
               <span>➔</span>
@@ -579,7 +579,7 @@
               <span class="help-step-num">STEP 2</span>
               <div style="font-weight:700;font-size:14px;">分類根拠（単語の色分け・確率表）を見る</div>
               <p style="color:var(--text-muted);font-size:12.5px;flex:1;">
-                メールを開き、閲覧ペイン上部のタブを「🎨 POPFile 単語色分けビュー」や「🔬 分類根拠・単語確率マトリクス」に切り替えると、どの単語がどのバケットの根拠になったか一目で分かります。
+                メールを開き、閲覧ペイン上部のタブを「🎨 単語色分けビュー」や「🔬 分類根拠・単語確率マトリクス」に切り替えると、どの単語がどのバケットの根拠になったか一目で分かります。
               </p>
               <button class="btn-secondary" onclick="state.readerTab='colored';selectFolder('received',0,false,false,document.querySelector('#folderNavList .nav-item'));">🎨 単語色分けビューを開く</button>
             </div>
@@ -603,19 +603,19 @@
               <li><strong>MUAフォルダ切り替え（左サイドバー上段）:</strong> 「すべての受信箱」「未読メール」「スター付き」「送信済みメール」「ゴミ箱」を切り替えてメール一覧を表示します。</li>
               <li><strong>メールプロバイダ別分離・絞り込み:</strong> メール一覧上部の「プロバイダ別に分離」チェック（または左サイドバーの「プロバイダ・アカウント別」）で、受信したメールプロバイダ（Gmail, Outlook, Yahoo!メール, 社内メール など）ごとにセクション分け表示・タブ絞り込みができます。</li>
               <li><strong>キーボードナビゲーション &amp; 安全削除 (Undo対応):</strong> メール一覧では <span class="help-code">↑</span> / <span class="help-code">↓</span>（上下移動）、<span class="help-code">Home</span> / <span class="help-code">End</span>（先頭・末尾へ移動）、<span class="help-code">PageUp</span> / <span class="help-code">PageDown</span>（1画面分移動）で高速にメールを切り替えられます。<span class="help-code">Delete</span> キーで選択中のメールを削除でき、削除後は自動的に直下（または直上）のメールへフォーカスが移るため連続操作が可能です。誤って削除した場合も <span class="help-code">Ctrl+Z</span> または「↩ 削除を元に戻す」ボタンで即座に復元できます。</li>
-              <li><strong>POPFileバケット別表示（左サイドバー中段）:</strong> 「通常受信 (Inbox)」「業務・開発 (Work)」「メルマガ・情報 (News)」「金融・請求 (Finance)」「迷惑メール (Spam)」など、分類されたバケット単位でメールを絞り込みます。</li>
+              <li><strong>バケット別表示（左サイドバー中段）:</strong> 「通常受信 (Inbox)」「業務・開発 (Work)」「メルマガ・情報 (News)」「金融・請求 (Finance)」「迷惑メール (Spam)」など、分類されたバケット単位でメールを絞り込みます。</li>
               <li><strong>キーワード検索:</strong> 一覧上部の検索ボックスにキーワードを入力して <span class="help-code">Enter</span> または「検索」を押すと、件名・差出人・本文を横断検索します。</li>
               <li><strong>詳細なメールヘッダ表示 &amp; カスタマイズ:</strong> メール閲覧画面上部には基本5項目（<span class="help-code">From / To / Cc / Bcc / Subject</span>）に加え、<strong>「⚙️ 表示ヘッダ設定」</strong>で指定した任意のヘッダ（<span class="help-code">Date</span>, <span class="help-code">X-Text-Classification</span>, <span class="help-code">Message-ID</span>, <span class="help-code">User-Agent</span> 等）を常時表示できます。また<strong>「📋 その他のヘッダを表示」</strong>ボタンで残りの全ヘッダをワンクリックで展開・折りたたみできます。</li>
               <li><strong>エリア全面の TextArea 本文表示:</strong> 「📄 メール本文 (TextArea)」タブでは、表示エリアいっぱいに広がる読み取り専用 <span class="help-code">TextArea</span> 内に本文が表示され、テキストの選択・コピーやキーボードスクロールが快適に行えます。</li>
               <li><strong>新規作成・返信（差出人／全員）・転送・削除:</strong> 左上の「✉️ 新規メール作成」からメール（To/Cc/Bcc・添付ファイル対応）を作成・送信できます。各メール画面の「↩️ 差出人に返信」「↩️ 全員に返信」「➡️ 転送」「🗑️ 削除」「💾 .eml出力」で個別操作が行えます。</li>
-              <li><strong>📄 .eml インポート / エクスポート:</strong> 既存のメーラーから保存した標準 RFC822（<span class="help-code">.eml</span>）ファイルをインポートしてPOPFileで分類したり、POPFileが挿入した <span class="help-code">X-Text-Classification</span> ヘッダ付きで <span class="help-code">.eml</span> 保存できます。</li>
+              <li><strong>📄 .eml インポート / エクスポート:</strong> 既存のメーラーから保存した標準 RFC822（<span class="help-code">.eml</span>）ファイルをインポートして自動分類したり、挿入された <span class="help-code">X-Text-Classification</span> ヘッダ付きで <span class="help-code">.eml</span> 保存できます。</li>
             </ul>
           </div>
 
           <div class="card">
             <h3 style="margin-bottom:10px;">↻ TOE（Train On Error：誤判定時学習）の使い方</h3>
             <p style="margin-bottom:10px;">
-              POPFileの最大の特徴は、<strong>「分類が間違っていたときだけ正しいバケットを教える（TOE）」</strong>という効率的な学習法です。
+              本メーラーの最大の特徴は、<strong>「分類が間違っていたときだけ正しいバケットを教える（TOE）」</strong>という効率的な学習法です。
             </p>
             <div class="help-callout">
               <strong>💡 再分類すると内部で何が起きますか？</strong><br/>
@@ -629,27 +629,27 @@
         <!-- Help Tab 3: Word Score Matrix & Corpus -->
         <div class="help-section" id="helpSec_word_corpus">
           <div class="card">
-            <h3 style="margin-bottom:10px;">🎨 POPFile 単語色分けビュー &amp; 🔬 単語確率マトリクス</h3>
+            <h3 style="margin-bottom:10px;">🎨 単語色分けビュー &amp; 🔬 単語確率マトリクス</h3>
             <p style="margin-bottom:10px;">
               なぜそのバケットに分類されたのか（ブラックボックスにならない透明性）を確認するため、メール閲覧画面には4つの表示タブがあります。
             </p>
             <ul style="padding-left:20px;display:flex;flex-direction:column;gap:8px;">
               <li><strong>📄 メール本文:</strong> 通常の読みやすいプレーンテキスト形式でメールを表示します。</li>
-              <li><strong>🎨 POPFile 単語色分けビュー:</strong> 件名や本文に含まれる単語のうち、コーパス辞書に登録されている単語を<strong>「最も強く示唆するバケットのテーマカラー」</strong>でハイライト表示します。単語にマウスカーソルを合わせると、バケット名・確率・出現回数がポップアップ表示されます。</li>
+              <li><strong>🎨 単語色分けビュー:</strong> 件名や本文に含まれる単語のうち、コーパス辞書に登録されている単語を<strong>「最も強く示唆するバケットのテーマカラー」</strong>でハイライト表示します。単語にマウスカーソルを合わせると、バケット名・確率・出現回数がポップアップ表示されます。</li>
               <li><strong>🔬 分類根拠・単語確率マトリクス:</strong>
                 <ul style="padding-left:20px;margin-top:4px;">
                   <li>上段に各バケットの<strong>事後確率 $P(\text{Bucket} \mid \text{Message})$ のグラフ</strong>を表示します。</li>
                   <li>下段に、そのメールの分類に強く寄与した上位トークンのバケット別スコア一覧表を表示します。</li>
                 </ul>
               </li>
-              <li><strong>📋 ヘッダ・X-Text-Classification:</strong> POPFileが付与した分類ヘッダおよびRFC822生ヘッダを確認できます。</li>
+              <li><strong>📋 ヘッダ・X-Text-Classification:</strong> 付与された自動分類ヘッダおよびRFC822生ヘッダを確認できます。</li>
             </ul>
           </div>
 
           <div class="card">
-            <h3 style="margin-bottom:10px;">🏷️ POPFile 特有の「疑似トークン（Pseudo-Tokens）」とは？</h3>
+            <h3 style="margin-bottom:10px;">🏷️ 特有の「疑似トークン（Pseudo-Tokens）」とは？</h3>
             <p style="margin-bottom:10px;">
-              POPFileは本文の単語だけでなく、メールヘッダやHTML構造の特徴も特別なプレフィックス付きトークンとして学習します：
+              本文の単語だけでなく、メールヘッダやHTML構造の特徴も特別なプレフィックス付きトークンとして学習します：
             </p>
             <table class="data-table">
               <thead>
@@ -735,7 +735,7 @@
           <div class="card">
             <h3 style="margin-bottom:10px;">⚙️ 実際のメールサーバー（POP3 / IMAP4 / SMTP）との接続設定</h3>
             <p style="margin-bottom:10px;">
-              左メニューの <strong>「⚙️ POP3 / IMAP / SMTP 設定」</strong> からお使いのメールアカウントを登録すると、実際のメールを受信してPOPFileで自動分類できます。
+              左メニューの <strong>「⚙️ POP3 / IMAP / SMTP 設定」</strong> からお使いのメールアカウントを登録すると、実際のメールを受信して自動分類できます。
             </p>
             <table class="data-table" style="margin-bottom:12px;">
               <thead>
@@ -749,12 +749,12 @@
                 <tr>
                   <td><strong>POP3 (推奨)</strong></td>
                   <td><span class="help-code">995</span> (TLS有効) / <span class="help-code">110</span> (平文)</td>
-                  <td>UIDLにより未受信メールのみを高速にダウンロードし、POPFileで分類します（サーバー上のメールは削除しません）。</td>
+                  <td>UIDLにより未受信メールのみを高速にダウンロードし、自動分類します（サーバー上のメールは削除しません）。</td>
                 </tr>
                 <tr>
                   <td><strong>IMAP4</strong></td>
                   <td><span class="help-code">993</span> (TLS有効) / <span class="help-code">143</span> (平文)</td>
-                  <td>INBOXの最新メールを <span class="help-code">BODY.PEEK[]</span> で既読状態を変えずに取得し、POPFileで分類します。</td>
+                  <td>INBOXの最新メールを <span class="help-code">BODY.PEEK[]</span> で既読状態を変えずに取得し、自動分類します。</td>
                 </tr>
                 <tr>
                   <td><strong>SMTP (送信)</strong></td>
@@ -778,13 +778,13 @@
               <div>
                 <strong>Q2. 間違えて別のバケットのボタンを押して学習させてしまいました。取り消せますか？</strong>
                 <p style="color:var(--text-muted);font-size:12.5px;margin-top:2px;">
-                  A. はい、そのまま本来の正しいバケットボタンをクリックしてください。POPFileエンジンが自動的に「間違えて学習したバケットから単語カウントを引き算」し、「正しいバケットへ足し算」して修正します。
+                  A. はい、そのまま本来の正しいバケットボタンをクリックしてください。分類エンジンが自動的に「間違えて学習したバケットから単語カウントを引き算」し、「正しいバケットへ足し算」して修正します。
                 </p>
               </div>
               <div>
                 <strong>Q3. 他のメールソフト（ThunderbirdやOutlookなど）と連携して使えますか？</strong>
                 <p style="color:var(--text-muted);font-size:12.5px;margin-top:2px;">
-                  A. 各メールの「💾 .eml出力」で書き出されたファイルには、本家POPFileと同じ <span class="help-code">X-Text-Classification: &lt;バケット名&gt;</span> ヘッダが埋め込まれています。また、外部から <span class="help-code">.eml</span> ファイルをインポートして分類根拠を詳しく調べるアナライザとしても活用できます。
+                  A. 各メールの「💾 .eml出力」で書き出されたファイルには、標準的な <span class="help-code">X-Text-Classification: &lt;バケット名&gt;</span> ヘッダが埋め込まれています。また、外部から <span class="help-code">.eml</span> ファイルをインポートして分類根拠を詳しく調べるアナライザとしても活用できます。
                 </p>
               </div>
             </div>
@@ -861,7 +861,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size:12.5px;color:var(--text-muted);">
-          未学習の新着サンプルメールを受信させ、POPFileのナイーブベイズ分類器およびマグネットがリアルタイムにどのバケットへ振り分けるか試すことができます。
+          未学習の新着サンプルメールを受信させ、ナイーブベイズ分類器およびマグネットがリアルタイムにどのバケットへ振り分けるか試すことができます。
         </p>
         <div class="form-group">
           <label>生成するメールのカテゴリ傾向</label>
@@ -909,7 +909,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('importModal')">キャンセル</button>
-        <button class="btn-primary" onclick="submitImportEML()">📥 インポートしてPOPFile分類</button>
+        <button class="btn-primary" onclick="submitImportEML()">📥 インポートして自動分類</button>
       </div>
     </div>
   </div>

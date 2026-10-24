@@ -374,7 +374,7 @@ func (s *Server) handleImportEML(w http.ResponseWriter, r *http.Request) {
 		action = "magnet"
 	}
 
-	headers := classifier.InjectPOPFileHeader(parsed.RawHeaders, res.BucketName)
+	headers := classifier.InjectClassificationHeader(parsed.RawHeaders, res.BucketName)
 	em := &db.Email{
 		UIDL:             fmt.Sprintf("import-%d", time.Now().UnixNano()),
 		MessageID:        parsed.MessageID,

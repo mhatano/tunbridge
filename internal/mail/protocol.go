@@ -409,7 +409,7 @@ func decodeTransferBytes(r io.Reader, enc string) []byte {
 	}
 }
 
-// FormatEML builds a standard RFC822 .eml string including POPFile headers and any attachments.
+// FormatEML builds a standard RFC822 .eml string including classification headers and any attachments.
 func FormatEML(em *db.Email) string {
 	var b strings.Builder
 	fromHeader := em.FromAddress
@@ -419,7 +419,7 @@ func FormatEML(em *db.Email) string {
 
 	if len(em.Attachments) == 0 {
 		if em.RawHeaders != "" {
-			b.WriteString(classifier.InjectPOPFileHeader(em.RawHeaders, em.BucketName))
+			b.WriteString(classifier.InjectClassificationHeader(em.RawHeaders, em.BucketName))
 			b.WriteString(fmt.Sprintf("\nX-POPFile-Confidence: %.4f\n", em.Confidence))
 		} else {
 			b.WriteString(fmt.Sprintf("From: %s\n", fromHeader))
@@ -441,7 +441,7 @@ func FormatEML(em *db.Email) string {
 	}
 
 	// Build multipart/mixed RFC822 message with attachments
-	boundary := fmt.Sprintf("====POPFile_MUA_Boundary_%d====", em.ID)
+	boundary := fmt.Sprintf("====Tunbridge_Boundary_%d====", em.ID)
 	b.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
 	b.WriteString(fmt.Sprintf("To: %s\r\n", em.ToAddress))
 	b.WriteString(fmt.Sprintf("Subject: %s\r\n", mime.BEncoding.Encode("UTF-8", em.Subject)))
@@ -501,7 +501,7 @@ func wrapBase64Lines(b64 string) string {
 	return out.String()
 }
 
-// FetchAccount connects to a POP3 or IMAP server, downloads new messages, classifies them via POPFile, and stores them.
+// FetchAccount connects to a POP3, IMAP, or JMAP server, downloads new messages, classifies them, and stores them.
 func FetchAccount(acc *db.Account, store *db.Store, engine *classifier.Engine) (int, error) {
 	n, _, err := FetchAccountWithDiag(acc, store, engine)
 	return n, err
@@ -800,7 +800,7 @@ func ingestRawEmail(raw []byte, uidl string, store *db.Store, engine *classifier
 		action = "magnet"
 	}
 
-	headers := classifier.InjectPOPFileHeader(parsed.RawHeaders, res.BucketName)
+	headers := classifier.InjectClassificationHeader(parsed.RawHeaders, res.BucketName)
 	em := &db.Email{
 		UIDL:             uidl,
 		MessageID:        parsed.MessageID,
@@ -837,7 +837,7 @@ func SendEmail(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, a
 
 // SendEmailWithDiag sends via SMTP while recording a detailed NetworkDiagReport.
 func SendEmailWithDiag(acc *db.Account, toAddr, ccAddr, bccAddr, subject, body string, attachments []db.Attachment, store *db.Store) (*db.Email, string, *NetworkDiagReport, error) {
-	fromAddr := "me@local.popfile"
+	fromAddr := "me@local.tunbridge"
 	fromName := "Local User"
 	if acc != nil && acc.EmailAddress != "" {
 		fromAddr = acc.EmailAddress
@@ -1021,7 +1021,7 @@ func RepairStoredEmails(store *db.Store, engine *classifier.Engine) (int, error)
 			}
 		}
 
-		em.RawHeaders = classifier.InjectPOPFileHeader(em.RawHeaders, bucketName)
+		em.RawHeaders = classifier.InjectClassificationHeader(em.RawHeaders, bucketName)
 		if em.RawHeaders == "" {
 			em.RawHeaders = origHdr
 		}

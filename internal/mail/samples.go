@@ -241,7 +241,7 @@ func SeedInitialData(store *db.Store, engine *classifier.Engine) error {
 		bucketByName[b.Name] = b
 	}
 
-	// 1. Create default POPFile Magnets
+	// 1. Create default Magnets
 	if workB, ok := bucketByName["work"]; ok {
 		_, _ = store.CreateMagnet(workB.ID, "domain", "vip-partner.co.jp", "VIPパートナー企業ドメインからのメールを常に「業務・開発」へ振り分け")
 	}
@@ -261,7 +261,7 @@ func SeedInitialData(store *db.Store, engine *classifier.Engine) error {
 		}
 	}
 
-	// 3. Now classify & insert the initial emails so their POPFile probability distributions are realistic!
+	// 3. Now classify & insert the initial emails so their probability distributions are realistic!
 	for i, tpl := range initialCorpusTemplates {
 		msgTime := baseTime.Add(time.Duration(i*2) * time.Hour).Format("2006-01-02 15:04:05")
 		res, err := engine.ClassifyAndExplain(tpl.FromName, tpl.FromAddress, tpl.ToAddress, tpl.Subject, tpl.BodyText, tpl.BodyHTML, true)
@@ -314,7 +314,7 @@ func SeedInitialData(store *db.Store, engine *classifier.Engine) error {
 	return nil
 }
 
-// GenerateIncomingSamples generates N newly arrived emails (untrained) and classifies them using POPFile.
+// GenerateIncomingSamples generates N newly arrived emails (untrained) and classifies them.
 func GenerateIncomingSamples(count int, category string, store *db.Store, engine *classifier.Engine) ([]db.Email, error) {
 	if count <= 0 {
 		count = 1

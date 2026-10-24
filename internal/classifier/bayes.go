@@ -113,7 +113,7 @@ func (e *Engine) MatchMagnets(fromName, fromAddr, toAddr, subject string) (*db.M
 	return nil, nil
 }
 
-// ClassifyAndExplain runs POPFile magnet check + Naive Bayes classification and returns full breakdown.
+// ClassifyAndExplain runs magnet check + Naive Bayes classification and returns full breakdown.
 func (e *Engine) ClassifyAndExplain(fromName, fromAddr, toAddr, subject, bodyText, bodyHTML string, incrementMagnetHit bool) (*ClassificationResult, error) {
 	buckets, err := e.Store.GetBuckets()
 	if err != nil {
@@ -209,7 +209,7 @@ func (e *Engine) ClassifyAndExplain(fromName, fromAddr, toAddr, subject, bodyTex
 		}, nil
 	}
 
-	// Compute POPFile Naive Bayes log-probabilities
+	// Compute Naive Bayes log-probabilities
 	// Laplace smoothing constant alpha = 0.5
 	const alpha = 0.5
 	logScores := make(map[string]float64)
@@ -230,7 +230,7 @@ func (e *Engine) ClassifyAndExplain(fromName, fromAddr, toAddr, subject, bodyTex
 			totalWordInCorpus += c
 		}
 
-		// Only words present in the corpus contribute to differentiation (like POPFile)
+		// Only words present in the corpus contribute to differentiation
 		if totalWordInCorpus == 0 {
 			continue
 		}
@@ -255,7 +255,7 @@ func (e *Engine) ClassifyAndExplain(fromName, fromAddr, toAddr, subject, bodyTex
 			logScores[b.Name] += effectiveFreq * math.Log(likelihood)
 		}
 
-		// Normalize word probability across buckets for POPFile Word Matrix visualization:
+		// Normalize word probability across buckets for Word Matrix visualization:
 		// P(B_k | w) assuming uniform prior for word inspection
 		bestBucket := ""
 		bestLabel := ""
@@ -346,7 +346,7 @@ func (e *Engine) ClassifyAndExplain(fromName, fromAddr, toAddr, subject, bodyTex
 			}
 		}
 	} else if len(wordDetails) == 0 || bestP < 0.32 {
-		// Below POPFile unclassified threshold
+		// Below unclassified threshold
 		winner = unclassifiedBucket
 	}
 
@@ -441,7 +441,7 @@ func (e *Engine) TrainEmail(bucketID int64, fromName, fromAddr, toAddr, subject,
 	return tx.Commit()
 }
 
-// ReclassifyEmail performs POPFile TOE (Train On Error):
+// ReclassifyEmail performs TOE (Train On Error):
 // If the email was previously trained in oldBucketID, removes its words from oldBucketID,
 // trains its words into newBucketID, updates accuracy counters (false_pos / false_neg),
 // and re-evaluates email probabilities.
@@ -470,7 +470,7 @@ func (e *Engine) ReclassifyEmail(emailID int64, newBucketID int64) (*db.Email, e
 		}
 	}
 
-	// Record POPFile False Positive / False Negative metrics if changing from original prediction
+	// Record False Positive / False Negative metrics if changing from original prediction
 	if em.BucketID != newBucketID {
 		_, _ = e.Store.DB.Exec("UPDATE buckets SET false_pos = false_pos + 1 WHERE id = ?", em.BucketID)
 		_, _ = e.Store.DB.Exec("UPDATE buckets SET false_neg = false_neg + 1 WHERE id = ?", newBucketID)
@@ -490,7 +490,7 @@ func (e *Engine) ReclassifyEmail(emailID int64, newBucketID int64) (*db.Email, e
 	}
 
 	// Update X-Text-Classification header in RawHeaders
-	updatedHeaders := InjectPOPFileHeader(em.RawHeaders, newBucket.Name)
+	updatedHeaders := InjectClassificationHeader(em.RawHeaders, newBucket.Name)
 
 	isReclass := 0
 	if em.OriginalBucketID != newBucketID {
@@ -541,7 +541,7 @@ func (e *Engine) RescanEmails(onlyUnclassified bool) (int, error) {
 		if res.MagnetMatched != nil {
 			magID = res.MagnetMatched.ID
 		}
-		headers := InjectPOPFileHeader(em.RawHeaders, res.BucketName)
+		headers := InjectClassificationHeader(em.RawHeaders, res.BucketName)
 		_, err = e.Store.DB.Exec(`
 			UPDATE emails SET bucket_id = ?, magnet_id = ?, confidence = ?, scores_json = ?, raw_headers = ?
 			WHERE id = ?
@@ -553,8 +553,8 @@ func (e *Engine) RescanEmails(onlyUnclassified bool) (int, error) {
 	return updated, nil
 }
 
-// InjectPOPFileHeader adds or updates X-Text-Classification header (classic POPFile header).
-func InjectPOPFileHeader(rawHeaders, bucketName string) string {
+// InjectClassificationHeader adds or updates X-Text-Classification header.
+func InjectClassificationHeader(rawHeaders, bucketName string) string {
 	lines := strings.Split(rawHeaders, "\n")
 	var out []string
 	found := false
@@ -571,6 +571,11 @@ func InjectPOPFileHeader(rawHeaders, bucketName string) string {
 		out = append(out, "X-Text-Classification: "+bucketName)
 	}
 	return strings.Join(out, "\n")
+}
+
+// InjectPOPFileHeader is an alias for InjectClassificationHeader for backward compatibility.
+func InjectPOPFileHeader(rawHeaders, bucketName string) string {
+	return InjectClassificationHeader(rawHeaders, bucketName)
 }
 
 // GetCorpusWords returns top words for a specific bucket with cross-bucket counts.
@@ -652,7 +657,7 @@ func (e *Engine) GetCorpusWords(bucketID int64, search string, limit int) ([]Cor
 	return items, nil
 }
 
-// LookupWord looks up a specific token across all buckets in the POPFile corpus.
+// LookupWord looks up a specific token across all buckets in the corpus.
 func (e *Engine) LookupWord(word string) (map[string]any, error) {
 	w := strings.ToLower(strings.TrimSpace(word))
 	buckets, err := e.Store.GetBuckets()
