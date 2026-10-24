@@ -117,7 +117,7 @@
     <!-- View 1: MUA 3-Pane View -->
     <main class="workspace-view" id="viewMUA">
       <!-- Middle Mail List -->
-      <section class="mail-list-pane">
+      <section class="mail-list-pane" id="mailListPane">
         <div class="mail-list-toolbar">
           <div class="search-box">
             <input type="text" id="mailSearchInput" placeholder="件名・差出人・本文を検索..." onkeydown="if(event.key==='Enter') loadEmails()" />
@@ -148,6 +148,9 @@
         </div>
         <div class="mail-list-items" id="mailListContainer" tabindex="0"></div>
       </section>
+
+      <!-- Resizer Splitter between Mail List and Reader Pane -->
+      <div class="pane-resizer" id="mailPaneResizer" title="ドラッグして一覧と閲覧ペインの幅を調整 (ダブルクリックで初期幅に戻す)"></div>
 
       <!-- Right Mail Reader & POPFile Inspector -->
       <section class="mail-reader-pane" id="mailReaderPane">
@@ -479,7 +482,9 @@
                 <option value="10">10分ごと</option>
                 <option value="15">15分ごと</option>
                 <option value="30">30分ごと</option>
-                <option value="60">60分ごと</option>
+                <option value="60">60分 (1時間) ごと</option>
+                <option value="120">2時間ごと</option>
+                <option value="180">3時間ごと</option>
               </select>
             </div>
             <div style="display:flex;gap:8px;align-items:center;">

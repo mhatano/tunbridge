@@ -320,6 +320,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const grpChk = document.getElementById('groupByProviderCheckbox');
   if (grpChk) grpChk.checked = state.groupByProvider;
   setupKeyboardNavigation();
+  initMailPaneResizer();
   await loadAccountsList();
   await refreshOverview();
   updateCurrentListTitle();
@@ -1026,6 +1027,73 @@ async function selectEmail(id, options = {}) {
   } catch (e) {
     showToast(e.message, '#ef4444');
   }
+}
+
+// ============================================================================
+// Mail List & Reader Pane Resizer (Draggable Splitter)
+// ============================================================================
+function initMailPaneResizer() {
+  const resizer = document.getElementById('mailPaneResizer');
+  const listPane = document.getElementById('mailListPane');
+  if (!resizer || !listPane) return;
+
+  // Restore saved width from localStorage
+  try {
+    const saved = localStorage.getItem('tunbridge_mail_list_width');
+    if (saved) {
+      const w = parseInt(saved, 10);
+      if (w >= 260 && w <= 950) {
+        listPane.style.width = `${w}px`;
+      }
+    }
+  } catch (e) {
+    // ignore localStorage errors
+  }
+
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = listPane.getBoundingClientRect().width;
+    resizer.classList.add('resizing');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - startX;
+    let newWidth = startWidth + deltaX;
+    if (newWidth < 260) newWidth = 260;
+    const maxWidth = Math.max(380, window.innerWidth - 420);
+    if (newWidth > maxWidth) newWidth = maxWidth;
+    listPane.style.width = `${newWidth}px`;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      resizer.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        const finalWidth = Math.round(listPane.getBoundingClientRect().width);
+        localStorage.setItem('tunbridge_mail_list_width', String(finalWidth));
+      } catch (e) {}
+    }
+  });
+
+  // Double click to reset to default 400px width
+  resizer.addEventListener('dblclick', () => {
+    listPane.style.width = '400px';
+    try {
+      localStorage.setItem('tunbridge_mail_list_width', '400');
+    } catch (e) {}
+  });
 }
 
 // ============================================================================
@@ -2907,9 +2975,20 @@ async function loadAccountsList() {
           const tlsLabel = a.protocol === 'jmap' ? (a.incoming_tls ? 'HTTPS' : 'HTTP') : (a.incoming_tls ? 'TLS' : 'Plain');
 
           let intervalBadge = '';
-          if (a.check_interval && Number(a.check_interval) > 0) {
+          const intervalNum = Number(a.check_interval) || 0;
+          if (intervalNum > 0) {
+            let label = '';
+            if (intervalNum === 60) {
+              label = t('accounts_interval_1h');
+            } else if (intervalNum === 120) {
+              label = t('accounts_interval_2h');
+            } else if (intervalNum === 180) {
+              label = t('accounts_interval_3h');
+            } else {
+              label = t('accounts_interval_mins', { min: intervalNum });
+            }
             intervalBadge = `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.14);color:#10b981;border:1px solid rgba(16,185,129,0.35);">
-              ⏱️ ${t('accounts_interval_mins', { min: a.check_interval })}
+              ⏱️ ${escapeHTML(label)}
             </span>`;
           } else {
             intervalBadge = `<span style="font-size:11px;color:var(--text-muted);">${t('accounts_interval_manual')}</span>`;
